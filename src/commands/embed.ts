@@ -38,14 +38,14 @@ export interface EmbedOpts {
    */
   onProgress?: (done: number, total: number, embedded: number) => void;
   /**
-   * v0.42.0.0 (A13): override the hardcoded PAGE_SIZE=2000 page-batch.
+   * v0.41.18.0 (A13): override the hardcoded PAGE_SIZE=2000 page-batch.
    * Smaller batches give finer progress granularity; larger batches
    * reduce per-batch coordination cost. Caps internally to 10K to
    * keep memory bounded.
    */
   batchSize?: number;
   /**
-   * v0.42.0.0 (A13): when 'recent', walks the stale-chunk pool in
+   * v0.41.18.0 (A13): when 'recent', walks the stale-chunk pool in
    * page.updated_at DESC order (recent-modified pages first) instead
    * of the legacy stable (page_id, chunk_index) order. Threads through
    * to listStaleChunks orderBy='updated_desc'. Backed by the
@@ -54,7 +54,7 @@ export interface EmbedOpts {
    */
   priority?: 'recent';
   /**
-   * v0.42.0.0 (A13): catch-up mode removes the wall-clock cap and loops
+   * v0.41.18.0 (A13): catch-up mode removes the wall-clock cap and loops
    * until countStaleChunks() returns 0. Used by `gbrain embed --stale
    * --catch-up` and by the embed-catch-up Minion handler that the onboard
    * remediation submits on big stale backlogs.
@@ -242,7 +242,7 @@ export async function runEmbed(engine: BrainEngine, args: string[]): Promise<Emb
   // v0.31.12: --source <id> scopes to a single source.
   const sourceIdx = args.indexOf('--source');
   const sourceId = sourceIdx >= 0 ? args[sourceIdx + 1] : undefined;
-  // v0.42.0.0 (A13): --batch-size N, --priority recent, --catch-up flags.
+  // v0.41.18.0 (A13): --batch-size N, --priority recent, --catch-up flags.
   const batchSizeIdx = args.indexOf('--batch-size');
   const batchSizeRaw = batchSizeIdx >= 0 ? args[batchSizeIdx + 1] : undefined;
   const batchSize = batchSizeRaw ? Math.max(1, Math.min(10_000, parseInt(batchSizeRaw, 10) || 0)) : undefined;
@@ -410,7 +410,7 @@ async function embedAll(
   // ─────────────────────────────────────────────────────────────
   if (staleOnly) {
     // D7: thread sourceId so `gbrain embed --stale --source X` actually scopes.
-    // v0.42.0.0 (A13): thread batchSize/priority/catchUp into the stale path.
+    // v0.41.18.0 (A13): thread batchSize/priority/catchUp into the stale path.
     return await embedAllStale(engine, sourceId, dryRun, result, onProgress, staleOpts);
   }
 
@@ -572,12 +572,12 @@ async function embedAllStale(
   // rows in one query (which times out on Supabase's 2-min pooler timeout),
   // we page through 2000 rows at a time via keyset pagination on
   // (page_id, chunk_index). Each query finishes in <1s.
-  // v0.42.0.0 (A13): --batch-size N CLI flag overrides hardcoded 2000 default.
+  // v0.41.18.0 (A13): --batch-size N CLI flag overrides hardcoded 2000 default.
   const PAGE_SIZE = staleOpts?.batchSize ?? 2000;
   const CONCURRENCY = parseInt(process.env.GBRAIN_EMBED_CONCURRENCY || '20', 10);
 
   // D3 + D3a + D8: wall-clock budget. 30 min default; env override.
-  // v0.42.0.0 (A13): --catch-up removes the wall-clock cap entirely so the
+  // v0.41.18.0 (A13): --catch-up removes the wall-clock cap entirely so the
   // handler runs until countStaleChunks() returns 0. Use Number.MAX_SAFE_INTEGER
   // (effectively unbounded) instead of the 30-min default. The AbortController
   // still wraps for SIGINT propagation; just the timer never fires.
@@ -588,7 +588,7 @@ async function embedAllStale(
   const budgetTimer = setTimeout(() => budgetController.abort(), BUDGET_MS);
   const budgetSignal = budgetController.signal;
 
-  // v0.42.0.0 (A13): --priority recent threads orderBy='updated_desc' to
+  // v0.41.18.0 (A13): --priority recent threads orderBy='updated_desc' to
   // listStaleChunks. Composite cursor tracks (updated_at, page_id, chunk_index)
   // instead of just (page_id, chunk_index); first-page cursor is sentinel
   // (null, 0, -1).

@@ -3886,7 +3886,7 @@ export async function buildChecks(
     checks.push({ name: 'graph_coverage', status: 'warn', message: 'Could not check graph coverage' });
   }
 
-  // 9b. v0.42.0.0 — orphan_ratio check (migration #1 of #1409).
+  // 9b. v0.41.18.0 — orphan_ratio check (migration #1 of #1409).
   //
   // Surfaces the fraction of linkable pages with no inbound links.
   // Consumes the same canonical getOrphansData() pure fn as
@@ -5219,7 +5219,7 @@ export async function buildChecks(
     progress.heartbeat('cycle_phase_scope');
     checks.push(checkCyclePhaseScope());
 
-    // v0.42.0.0 (A16, T4): 4 onboard checks — each emits a Check + its
+    // v0.41.18.0 (A16, T4): 4 onboard checks — each emits a Check + its
     // own RemediationStep[] aggregated by onboard's plan path. The
     // checks themselves are cheap counts (backed by content_chunks_stale_idx
     // for embed_staleness, TABLESAMPLE on PG >50K for the coverage pair).
@@ -5609,7 +5609,7 @@ async function runLocksCheck(engine: BrainEngine | null, jsonOutput: boolean): P
 /**
  * CLI wrapper around computeRemediationPlan (src/core/remediation/plan.ts).
  *
- * v0.42.0.0 (A1, codex finding #2): library extracted so onboard +
+ * v0.41.18.0 (A1, codex finding #2): library extracted so onboard +
  * MCP run_onboard can compose against a stable shape. This wrapper
  * stays as the CLI surface only — argv parsing + human render. JSON
  * mode emits the library's stable envelope verbatim.
@@ -5658,7 +5658,7 @@ export async function runRemediationPlan(
 /**
  * CLI wrapper around runRemediation (src/core/remediation/run.ts).
  *
- * v0.42.0.0 (A1, codex finding #2): orchestrator extracted into the
+ * v0.41.18.0 (A1, codex finding #2): orchestrator extracted into the
  * remediation library. This wrapper stays as the CLI surface only —
  * argv parsing + interactive TTY confirmation + human/JSON render via
  * RemediationHooks.
@@ -5798,7 +5798,7 @@ export async function runRemediate(
   if (result.budget_exhausted || anyFailed) process.exit(1);
 }
 
-// v0.42.0.0 (A1, codex finding #2): loadRecommendationContext moved to
+// v0.41.18.0 (A1, codex finding #2): loadRecommendationContext moved to
 // src/core/remediation/context.ts so onboard + MCP run_onboard compose
 // the same context. The CLI surfaces (runRemediationPlan / runRemediate
 // above) now call computeRemediationPlan + runRemediation from the

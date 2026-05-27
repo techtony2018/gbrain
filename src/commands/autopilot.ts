@@ -511,7 +511,7 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
           }),
           hasChatApiKey: !!(process.env.ANTHROPIC_API_KEY || await engine.getConfig('anthropic_api_key')),
         };
-        // v0.42.0.0 (A5 + A19 + A22, T15): consult onboard recommendations
+        // v0.41.18.0 (A5 + A19 + A22, T15): consult onboard recommendations
         // ALONGSIDE doctor's brain-score recommendations. Onboard's 4 new
         // checks (embed_staleness, link_coverage, timeline_coverage,
         // takes_count) supply extraRemediations into computeRecommendations.

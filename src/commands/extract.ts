@@ -452,16 +452,16 @@ export async function runExtract(engine: BrainEngine, args: string[]) {
   // v0_13_0 migration orchestrator runs this once under the hood; users
   // opt in for subsequent runs.
   const includeFrontmatter = args.includes('--include-frontmatter');
-  // v0.42.0.0 Part B: --by-mention auto-link body-text entity mentions
+  // v0.41.18.0 Part B: --by-mention auto-link body-text entity mentions
   // via the gazetteer pass. Mode dispatch — when set, run ONLY the
   // mention pass (skip default link extract). DB-source only per D7;
   // FS-source is rejected with a paste-ready fix-hint below.
   const byMention = args.includes('--by-mention');
-  // v0.42.0.0 (A10, T7): --ner is a NER-extraction mode dispatch. Same
+  // v0.41.18.0 (A10, T7): --ner is a NER-extraction mode dispatch. Same
   // DB-source-only posture as --by-mention. Can combine with --by-mention
   // in a single command for a shared-gazetteer walk (saves one pass).
   const ner = args.includes('--ner');
-  // v0.42.0.0 (A11, T8): --from-meetings extracts timeline entries from
+  // v0.41.18.0 (A11, T8): --from-meetings extracts timeline entries from
   // meeting pages onto each discussed entity. Timeline subcommand only.
   const fromMeetings = args.includes('--from-meetings');
 
@@ -487,7 +487,7 @@ export async function runExtract(engine: BrainEngine, args: string[]) {
     process.exit(1);
   }
 
-  // v0.42.0.0 D7: --by-mention requires DB-source. Gazetteer construction
+  // v0.41.18.0 D7: --by-mention requires DB-source. Gazetteer construction
   // needs the engine; mixing FS-walk with DB-gazetteer is incoherent
   // (you'd scan files on disk for mentions of entities that may not exist
   // in any synced page). Fail loud with a paste-ready fix-hint.
@@ -509,7 +509,7 @@ export async function runExtract(engine: BrainEngine, args: string[]) {
     );
     process.exit(2);
   }
-  // v0.42.0.0 (T7): same gates for --ner.
+  // v0.41.18.0 (T7): same gates for --ner.
   if (ner && source === 'fs') {
     console.error(
       `--ner requires --source db (currently --source fs). NER extraction needs the engine ` +
@@ -527,7 +527,7 @@ export async function runExtract(engine: BrainEngine, args: string[]) {
     );
     process.exit(2);
   }
-  // v0.42.0.0 (T8): --from-meetings is timeline-only + DB-source-only.
+  // v0.41.18.0 (T8): --from-meetings is timeline-only + DB-source-only.
   if (fromMeetings && source === 'fs') {
     console.error(
       `--from-meetings requires --source db (currently --source fs). Re-run as:\n\n` +
@@ -575,14 +575,14 @@ export async function runExtract(engine: BrainEngine, args: string[]) {
       // is fs-only; we keep the dual codepath here so Minions handlers
       // can opt in via mode + source.
       result = { links_created: 0, timeline_entries_created: 0, pages_processed: 0 };
-      // v0.42.0.0: --by-mention is a mode dispatch. When set, run ONLY
+      // v0.41.18.0: --by-mention is a mode dispatch. When set, run ONLY
       // the mention pass and skip the default link/frontmatter extract.
       // The two passes write different link_source values ('mentions' vs
       // 'markdown'/'frontmatter') so they don't conflict, but mixing them
       // in a single CLI invocation is surprising — keep the surfaces
       // separate.
       if (fromMeetings) {
-        // v0.42.0.0 (T8): timeline-from-meetings runs SOLO (doesn't combine
+        // v0.41.18.0 (T8): timeline-from-meetings runs SOLO (doesn't combine
         // with --by-mention/--ner because those are links passes).
         const { extractTimelineFromMeetings } = await import('../core/extract-timeline-from-meetings.ts');
         const r = await extractTimelineFromMeetings(engine, { dryRun, sourceIdFilter });
@@ -592,7 +592,7 @@ export async function runExtract(engine: BrainEngine, args: string[]) {
           console.log(`Timeline from meetings: ${r.entries_created} entries on ${r.entities_touched} entity pages from ${r.meetings_scanned} meetings`);
         }
       } else if (byMention || ner) {
-        // v0.42.0.0 (T7): combined --by-mention + --ner walk shares one
+        // v0.41.18.0 (T7): combined --by-mention + --ner walk shares one
         // gazetteer; saves an entire pass on big brains. When only one
         // flag is set, the other extractor skips silently.
         const { buildGazetteer: buildGz } = await import('../core/by-mention.ts');
@@ -1245,7 +1245,7 @@ async function extractTimelineFromDB(
 }
 
 /**
- * v0.42.0.0 Part B (migration #1 of #1409) — auto-link body-text entity
+ * v0.41.18.0 Part B (migration #1 of #1409) — auto-link body-text entity
  * mentions to known entity pages.
  *
  * Walks every page (respecting --source-id / --type / --since filters),

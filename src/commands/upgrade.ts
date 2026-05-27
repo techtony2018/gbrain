@@ -410,7 +410,7 @@ export async function runPostUpgrade(args: string[] = []): Promise<void> {
   //   - every scaffolded skill is identical (nothing to say)
   await postUpgradeReferenceSweep();
 
-  // v0.42.0.0 (A4 + A18, T14): post-upgrade onboard banner. Fail-open;
+  // v0.41.18.0 (A4 + A18, T14): post-upgrade onboard banner. Fail-open;
   // doesn't engine-connect (lightweight TTY check only). The actual
   // recommendations need engine access via `gbrain onboard --check`;
   // the banner just nudges the user to run it.

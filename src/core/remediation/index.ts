@@ -1,5 +1,5 @@
 // src/core/remediation/index.ts
-// v0.42.0.0 (A1). Barrel for the doctor-remediation library.
+// v0.41.18.0 (A1). Barrel for the doctor-remediation library.
 // Consumers (doctor CLI, onboard CLI, MCP run_onboard) import from here.
 
 export { computeRemediationPlan, SYNTHETIC_CHECK_NAMES } from './plan.ts';

@@ -4,7 +4,7 @@
 // (orphan_count, stale_count, link_coverage, takes_count) so adding
 // source_id WHERE clauses would change the semantic. Per A26.
 //
-// v0.42.0.0 (A16, T4). Four new doctor checks consumed by both:
+// v0.41.18.0 (A16, T4). Four new doctor checks consumed by both:
 //   - src/commands/doctor.ts runDoctor      (local surface)
 //   - src/core/doctor-remote.ts             (thin-client surface)
 //   - src/core/onboard/plan-from-checks.ts  (onboard remediation aggregator)
@@ -78,7 +78,11 @@ export async function checkEmbedStaleness(
       status: 'remediable',
     }));
   } else {
-    status = 'fail';
+    // v0.41.18.0: warn-only even on large backlogs. Doctor exit code should
+    // not flip from a brain that has pages waiting to be embedded — that's
+    // a "needs work" condition, not a "broken" one. The high-severity
+    // remediation still surfaces via onboard's plan.
+    status = 'warn';
     message = `${staleCount} stale chunks (large backlog — vector search returning outdated content)`;
     remediations.push(makeRemediationStep({
       id: 'onboard.embed_catch_up',
@@ -159,6 +163,11 @@ export async function checkEntityLinkCoverage(
   let status: 'ok' | 'warn' | 'fail' = 'ok';
   let message: string;
 
+  // v0.41.18.0: warn-only, never fail. Empty entity link coverage is "needs
+  // work" not "broken" — doctor's exit code should not flip from a fresh
+  // brain with entity pages but no auto-extracted links yet. Fail status
+  // would break `gbrain doctor exits 0` contract; the recommendation
+  // surfaces the same fix via the onboard plan either way.
   if (coverage >= 0.7) {
     message = `Coverage ${pct}% ± ${ciPct}%${sampleNote}`;
   } else if (coverage >= 0.4) {
@@ -175,8 +184,8 @@ export async function checkEntityLinkCoverage(
       status: 'remediable',
     }));
   } else {
-    status = 'fail';
-    message = `Coverage ${pct}% ± ${ciPct}% (target 70% — graph traversal degraded)${sampleNote}`;
+    status = 'warn';
+    message = `Coverage ${pct}% ± ${ciPct}% (target 70%)${sampleNote}`;
     remediations.push(makeRemediationStep({
       id: 'onboard.extract_ner_links',
       job: 'extract-ner',
@@ -245,6 +254,9 @@ export async function checkTimelineCoverage(
   let status: 'ok' | 'warn' | 'fail' = 'ok';
   let message: string;
 
+  // v0.41.18.0: warn-only, never fail. Same posture as entity_link_coverage —
+  // the recommendation still surfaces in onboard's plan, but doctor exit
+  // code doesn't flip on a fresh brain.
   if (coverage >= 0.9) {
     message = `Coverage ${pct}% ± ${ciPct}%${sampleNote}`;
   } else if (coverage >= 0.7) {
@@ -261,8 +273,8 @@ export async function checkTimelineCoverage(
       status: 'remediable',
     }));
   } else {
-    status = 'fail';
-    message = `Coverage ${pct}% ± ${ciPct}% (target 90% — find_trajectory degraded)${sampleNote}`;
+    status = 'warn';
+    message = `Coverage ${pct}% ± ${ciPct}% (target 90%)${sampleNote}`;
     remediations.push(makeRemediationStep({
       id: 'onboard.extract_timeline_from_meetings',
       job: 'extract-timeline-from-meetings',

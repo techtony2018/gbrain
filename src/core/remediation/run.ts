@@ -1,5 +1,5 @@
 // src/core/remediation/run.ts
-// v0.42.0.0 (A1, codex finding #2). Extracted from doctor.ts:runRemediate
+// v0.41.18.0 (A1, codex finding #2). Extracted from doctor.ts:runRemediate
 // so onboard + MCP run_onboard call the same orchestrator without parsing
 // argv or invoking process.exit / console.* directly.
 //

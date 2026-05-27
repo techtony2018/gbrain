@@ -2,7 +2,7 @@
 
 All notable changes to GBrain will be documented in this file.
 
-## [0.42.0.0] - 2026-05-26
+## [0.41.18.0] - 2026-05-26
 
 **You can now run one command and have gbrain tell you exactly what's
 wrong with your brain — and offer to fix it.**
@@ -95,7 +95,7 @@ flag — refuses to run otherwise. Even with both gates flipped, the
 autopilot path for takes-bootstrap stays `manual_only` (does not fire
 unattended) until v0.42.1 lands the 100+-case eval suite.
 
-To take advantage of v0.42.0.0:
+To take advantage of v0.41.18.0:
 
 `gbrain upgrade` runs the schema migrations and prints the post-upgrade
 banner pointing at `gbrain onboard --check`. If something looks off:

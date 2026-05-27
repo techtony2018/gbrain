@@ -1,5 +1,5 @@
 // src/core/onboard/types.ts
-// v0.42.0.0 (T12). Onboard-surface-specific types layered on top of the
+// v0.41.18.0 (T12). Onboard-surface-specific types layered on top of the
 // shared remediation library (src/core/remediation/). Onboard reframes
 // the same RemediationStep objects as "onboarding opportunities" with
 // extra prompt-text + apply-policy metadata.

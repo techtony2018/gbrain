@@ -1,5 +1,5 @@
 // test/e2e/onboard-full-flow.test.ts
-// v0.42.0.0 (T20). Hermetic PGLite E2E for the onboard surface — no
+// v0.41.18.0 (T20). Hermetic PGLite E2E for the onboard surface — no
 // DATABASE_URL needed. Exercises the key contracts end-to-end:
 //   - computeRemediationPlan with extras returns the expected shape
 //   - buildOnboardReport produces a stable JSON envelope

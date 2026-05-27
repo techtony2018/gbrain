@@ -1995,7 +1995,7 @@ export class PostgresEngine implements BrainEngine {
     const afterIdx = opts?.afterChunkIndex ?? -1;
     const orderBy = opts?.orderBy ?? 'page_id';
 
-    // v0.42.0.0 (A13, codex #9): --priority recent path. Composite cursor
+    // v0.41.18.0 (A13, codex #9): --priority recent path. Composite cursor
     // (updated_at DESC NULLS LAST, page_id ASC, chunk_index ASC). Backed by
     // idx_pages_updated_at_desc + content_chunks_stale_idx partial.
     // "Next row" semantic with DESC NULLS LAST + ASC tiebreakers is:
@@ -2186,7 +2186,7 @@ export class PostgresEngine implements BrainEngine {
     const fromSourceIds = links.map(l => l.from_source_id || 'default');
     const toSourceIds = links.map(l => l.to_source_id || 'default');
     const originSourceIds = links.map(l => l.origin_source_id || 'default');
-    // v0.42.0.0 (A10): link_kind column (v98). NULL = legacy/plain.
+    // v0.41.18.0 (A10): link_kind column (v98). NULL = legacy/plain.
     const linkKinds = links.map(l => l.link_kind ?? null);
     const result = await sql`
       INSERT INTO links (from_page_id, to_page_id, link_type, context, link_source, link_kind, origin_page_id, origin_field)
@@ -2579,7 +2579,7 @@ export class PostgresEngine implements BrainEngine {
     if (slugs.length === 0) return result;
     for (const s of slugs) result.set(s, 0);
 
-    // v0.42.0.0 D12: filter mentions OUT of backlink-count for search
+    // v0.41.18.0 D12: filter mentions OUT of backlink-count for search
     // ranking. `link_source='mentions'` rows are auto-linked body-text
     // mentions from `gbrain extract links --by-mention`; they're
     // graph-completeness signal, NOT human-intent signal. Counting them
@@ -4287,7 +4287,7 @@ export class PostgresEngine implements BrainEngine {
   ): Promise<T[]> {
     const conn = this.sql;
     const pending = conn.unsafe(sql, params as Parameters<typeof conn.unsafe>[1]);
-    // v0.42.0.0 (A20, codex #7): real cancellation via postgres.js's
+    // v0.41.18.0 (A20, codex #7): real cancellation via postgres.js's
     // .cancel() on the pending query. Init nudge (3s wallclock cap) is the
     // first consumer; the AbortSignal fires when the timer trips.
     // Already-aborted signal short-circuits before the network round-trip.

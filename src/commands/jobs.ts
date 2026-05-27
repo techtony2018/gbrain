@@ -1551,7 +1551,7 @@ export async function registerBuiltinHandlers(worker: MinionWorker, engine: Brai
     return await makeEmbedBackfillHandler(engine)(job);
   });
 
-  // v0.42.0.0 (A10, T7): extract-ner handler for the gbrain onboard
+  // v0.41.18.0 (A10, T7): extract-ner handler for the gbrain onboard
   // remediation pipeline. Wraps extractNerLinks; emits typed_ner kind
   // alongside the by-mention 'plain' kind. NOT in PROTECTED_JOB_NAMES
   // (regex-only, no LLM spend).
@@ -1563,7 +1563,7 @@ export async function registerBuiltinHandlers(worker: MinionWorker, engine: Brai
     });
   });
 
-  // v0.42.0.0 (A12, T9): extract-takes-from-pages handler. PROTECTED
+  // v0.41.18.0 (A12, T9): extract-takes-from-pages handler. PROTECTED
   // (LLM-bearing). Two-gate consent enforced at the handler boundary:
   // refuses to run unless takes.bootstrap_enabled config is true, even
   // when allowProtectedSubmit was set at queue.add time.
@@ -1579,7 +1579,7 @@ export async function registerBuiltinHandlers(worker: MinionWorker, engine: Brai
     });
   });
 
-  // v0.42.0.0 (A11, T8): extract-timeline-from-meetings handler. Wraps
+  // v0.41.18.0 (A11, T8): extract-timeline-from-meetings handler. Wraps
   // extractTimelineFromMeetings. NOT in PROTECTED_JOB_NAMES (pure SQL + string
   // scan, no LLM spend).
   worker.register('extract-timeline-from-meetings', async (job) => {
@@ -1590,7 +1590,7 @@ export async function registerBuiltinHandlers(worker: MinionWorker, engine: Brai
     });
   });
 
-  // v0.42.0.0 (A13): embed-catch-up handler for the gbrain onboard
+  // v0.41.18.0 (A13): embed-catch-up handler for the gbrain onboard
   // remediation pipeline. Wraps runEmbedCore with stale + catchUp + the
   // priority/batchSize the recommendation supplies. NOT in
   // PROTECTED_JOB_NAMES (embedding spend only).

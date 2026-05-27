@@ -1,5 +1,5 @@
 // src/core/onboard/init-nudge.ts
-// v0.42.0.0 (A4 + A18 + A20, T14). Post-initSchema summary that runs
+// v0.41.18.0 (A4 + A18 + A20, T14). Post-initSchema summary that runs
 // the 4 onboard checks against a 3-second wallclock budget and prints
 // a one-line nudge if recommendations exist.
 //

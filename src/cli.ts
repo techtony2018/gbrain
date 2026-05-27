@@ -1489,7 +1489,7 @@ async function handleCliOnly(command: string, args: string[]) {
         break;
       }
       case 'onboard': {
-        // v0.42.0.0 (T13) — gbrain onboard. Thin shell over T2 library
+        // v0.41.18.0 (T13) — gbrain onboard. Thin shell over T2 library
         // + T4 onboard checks + T12 render layer.
         const { runOnboard } = await import('./commands/onboard.ts');
         await runOnboard(engine, args);

@@ -4168,7 +4168,7 @@ const reload_schema_pack: Operation = {
   },
 };
 
-// v0.42.0.0 (A7 + T16, codex finding #5): MCP op for federated / thin-client
+// v0.41.18.0 (A7 + T16, codex finding #5): MCP op for federated / thin-client
 // brain installs to drive `gbrain onboard --auto` over MCP. Admin scope
 // (NOT localOnly) so remote agents authenticated via OAuth can probe
 // brain health + submit auto-eligible remediation handlers.
@@ -4342,7 +4342,7 @@ export const operations: Operation[] = [
   schema_stats, schema_lint, schema_graph, schema_explain_type,
   schema_review_orphans,
   schema_apply_mutations, reload_schema_pack,
-  // v0.42.0.0 (T16, A7, codex #5)
+  // v0.41.18.0 (T16, A7, codex #5)
   run_onboard,
 ];
 

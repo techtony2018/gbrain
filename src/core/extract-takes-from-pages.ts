@@ -1,5 +1,5 @@
 // src/core/extract-takes-from-pages.ts
-// v0.42.0.0 (A12, A24, T9). Haiku classifier loop over allowlisted page
+// v0.41.18.0 (A12, A24, T9). Haiku classifier loop over allowlisted page
 // types — concept, atom, lore, briefing, writing, originals — extracts
 // gradeable claims and inserts them as takes fence rows.
 //

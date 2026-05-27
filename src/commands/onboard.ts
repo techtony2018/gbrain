@@ -2,7 +2,7 @@
 // sourcescope:file-brain-wide — the --history surface reads
 // migration_impact_log brain-wide. Per A26 lint opt-out.
 //
-// v0.42.0.0 (A1, T13). CLI shell for `gbrain onboard`. Thin wrapper over:
+// v0.41.18.0 (A1, T13). CLI shell for `gbrain onboard`. Thin wrapper over:
 //   - T2 library: computeRemediationPlan + runRemediation
 //   - T4 onboard checks: runAllOnboardChecks (extra remediations)
 //   - T12 render: buildOnboardReport + renderHuman

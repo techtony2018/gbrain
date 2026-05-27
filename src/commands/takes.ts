@@ -579,7 +579,7 @@ Common flags:
 }
 
 /**
- * v0.42.0.0 (A12, A24, T9) — `gbrain takes extract --from-pages` runs
+ * v0.41.18.0 (A12, A24, T9) — `gbrain takes extract --from-pages` runs
  * Haiku over concept/atom/lore/briefing/writing/originals pages and
  * lifts gradeable claims into the takes fence.
  *

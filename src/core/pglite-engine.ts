@@ -2008,7 +2008,7 @@ export class PGLiteEngine implements BrainEngine {
     const afterIdx = opts?.afterChunkIndex ?? -1;
     const orderBy = opts?.orderBy ?? 'page_id';
 
-    // v0.42.0.0 (A13, codex #9): --priority recent path. See postgres-engine
+    // v0.41.18.0 (A13, codex #9): --priority recent path. See postgres-engine
     // sibling for full rationale. Same composite cursor + ORDER BY.
     if (orderBy === 'updated_desc') {
       const afterUpdated = opts?.afterUpdatedAt ?? null;
@@ -2186,7 +2186,7 @@ export class PGLiteEngine implements BrainEngine {
     const fromSourceIds = links.map(l => l.from_source_id || 'default');
     const toSourceIds = links.map(l => l.to_source_id || 'default');
     const originSourceIds = links.map(l => l.origin_source_id || 'default');
-    // v0.42.0.0 (A10): link_kind column (v98). NULL = legacy/plain.
+    // v0.41.18.0 (A10): link_kind column (v98). NULL = legacy/plain.
     const linkKinds = links.map(l => l.link_kind ?? null);
     const result = await this.db.query(
       `INSERT INTO links (from_page_id, to_page_id, link_type, context, link_source, link_kind, origin_page_id, origin_field)
@@ -2576,7 +2576,7 @@ export class PGLiteEngine implements BrainEngine {
     // Initialize all slugs to 0 so callers get a consistent map.
     for (const s of slugs) result.set(s, 0);
 
-    // v0.42.0.0 D12: filter mentions OUT of backlink-count for search
+    // v0.41.18.0 D12: filter mentions OUT of backlink-count for search
     // ranking — parity with postgres-engine.ts. See that file's comment
     // for the full rationale. `IS DISTINCT FROM` is NULL-safe so legacy
     // rows with NULL link_source still count toward backlinks.
@@ -4338,7 +4338,7 @@ export class PGLiteEngine implements BrainEngine {
     params?: unknown[],
     opts?: { signal?: AbortSignal },
   ): Promise<T[]> {
-    // v0.42.0.0 (A20, codex #7): PGLite is in-process WASM with no
+    // v0.41.18.0 (A20, codex #7): PGLite is in-process WASM with no
     // kernel-level cancellation. Best-effort: pre-check the signal so
     // an already-aborted call returns immediately, and race against
     // a settle promise so a late-arriving abort throws AbortError

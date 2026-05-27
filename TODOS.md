@@ -1,6 +1,6 @@
 # TODOS
 
-## v0.42.0.0 onboard wave follow-ups (v0.42.1+)
+## v0.41.18.0 onboard wave follow-ups (v0.42.1+)
 
 - **TODO-A (P2)**: Pack-aware `linkable: boolean` per-type field on schema-pack
   manifests. Both `gbrain extract links --by-mention` and `--ner` would consult

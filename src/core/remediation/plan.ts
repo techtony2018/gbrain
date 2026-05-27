@@ -1,5 +1,5 @@
 // src/core/remediation/plan.ts
-// v0.42.0.0 (A1, codex finding #2). Extracted from doctor.ts:runRemediationPlan
+// v0.41.18.0 (A1, codex finding #2). Extracted from doctor.ts:runRemediationPlan
 // so onboard + MCP run_onboard call the same library without parsing argv
 // or invoking console.* / process.exit.
 

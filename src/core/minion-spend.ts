@@ -1,5 +1,5 @@
 // src/core/minion-spend.ts
-// v0.42.0.0 (A7 + A23, codex finding #4).
+// v0.41.18.0 (A7 + A23, codex finding #4).
 //
 // Generic Minion handlers (embed-catch-up, extract-ner,
 // extract-timeline-from-meetings, extract-takes-from-pages) need to

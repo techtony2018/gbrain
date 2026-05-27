@@ -168,7 +168,7 @@ export interface CheckClassification {
  * `classifyChecks()` and are rendered alongside the plan as informational.
  */
 /**
- * Generalized (v0.42.0.0, A2 + codex finding #3): an optional third arg
+ * Generalized (v0.41.18.0, A2 + codex finding #3): an optional third arg
  * lets callers inject RemediationStep entries discovered by doctor checks
  * outside this module's hardcoded planner. Without this, adding a
  * `Check.remediation` field to a new doctor check wouldn't auto-wire into
@@ -283,7 +283,7 @@ export function computeRecommendations(
     });
   }
 
-  // v0.42.0.0 (A2 + codex #3): merge caller-supplied extras. Hardcoded
+  // v0.41.18.0 (A2 + codex #3): merge caller-supplied extras. Hardcoded
   // entries win on id collision so legacy behavior is preserved when an
   // extra accidentally duplicates a hardcoded id.
   if (extraRemediations.length > 0) {

@@ -1,5 +1,5 @@
 // src/core/remediation/context.ts
-// v0.42.0.0 (A1, codex finding #2). Extracted verbatim from
+// v0.41.18.0 (A1, codex finding #2). Extracted verbatim from
 // src/commands/doctor.ts:loadRecommendationContext so both the doctor
 // CLI shell AND the new gbrain onboard / MCP run_onboard surfaces
 // build the same context object.

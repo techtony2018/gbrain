@@ -1,5 +1,5 @@
 // src/core/extract-timeline-from-meetings.ts
-// v0.42.0.0 (A11, T8). Walk meeting pages, identify discussed entities via
+// v0.41.18.0 (A11, T8). Walk meeting pages, identify discussed entities via
 // (a) existing `attended` links (attendees) + (b) body-mention scan, and
 // write a timeline entry on each entity page with a meeting-specific source
 // key that survives v99's widened dedup.

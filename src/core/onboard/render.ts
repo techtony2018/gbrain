@@ -1,5 +1,5 @@
 // src/core/onboard/render.ts
-// v0.42.0.0 (T12). Stable JSON envelope + human renderer for
+// v0.41.18.0 (T12). Stable JSON envelope + human renderer for
 // `gbrain onboard`. Library-shaped — no console.* / process.exit; CLI
 // shell calls these and pipes results to its own output.
 

@@ -974,7 +974,7 @@ async function initPGLite(opts: {
       const { VERSION } = await import('../version.ts');
       printAdvisoryIfRecommended({ version: VERSION, context: 'init' });
 
-      // v0.42.0.0 (A4 + A18 + A20, T14): post-initSchema onboard nudge.
+      // v0.41.18.0 (A4 + A18 + A20, T14): post-initSchema onboard nudge.
       // Fail-open; 3s wallclock cap. Skipped silently in non-TTY contexts.
       const { runInitNudge } = await import('../core/onboard/init-nudge.ts');
       await runInitNudge(engine);
@@ -1197,7 +1197,7 @@ async function initPostgres(opts: {
       const { VERSION } = await import('../version.ts');
       printAdvisoryIfRecommended({ version: VERSION, context: 'init' });
 
-      // v0.42.0.0 (A4 + A18 + A20, T14): post-initSchema onboard nudge.
+      // v0.41.18.0 (A4 + A18 + A20, T14): post-initSchema onboard nudge.
       // Fail-open; 3s wallclock cap. Skipped silently in non-TTY contexts.
       const { runInitNudge } = await import('../core/onboard/init-nudge.ts');
       await runInitNudge(engine);

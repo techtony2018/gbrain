@@ -262,7 +262,7 @@ CREATE INDEX IF NOT EXISTS idx_chunks_embedding_image
 CREATE INDEX IF NOT EXISTS idx_chunks_search_vector ON content_chunks USING GIN(search_vector);
 CREATE INDEX IF NOT EXISTS idx_chunks_symbol_qualified
   ON content_chunks(symbol_name_qualified) WHERE symbol_name_qualified IS NOT NULL;
--- v0.42.0.0 (codex finding #9): partial index for `gbrain embed --stale`
+-- v0.41.18.0 (codex finding #9): partial index for `gbrain embed --stale`
 -- + `--priority recent`. content_chunks has no updated_at column (chunks
 -- are re-INSERTed on page change, not UPDATEd), so the "recent-first"
 -- ORDER BY happens at the JOIN site: outer ORDER BY p.updated_at DESC
@@ -360,11 +360,11 @@ CREATE TABLE IF NOT EXISTS links (
   to_page_id     INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
   link_type      TEXT    NOT NULL DEFAULT '',
   context        TEXT    NOT NULL DEFAULT '',
-  -- v0.42.0.0: 'mentions' added for auto-linked body-text mentions
+  -- v0.41.18.0: 'mentions' added for auto-linked body-text mentions
   -- (gbrain extract links --by-mention). Filtered OUT of backlink-count
   -- for search ranking; only counts toward orphan-ratio + graph traversal.
   link_source    TEXT    CHECK (link_source IS NULL OR link_source IN ('markdown', 'frontmatter', 'manual', 'mentions')),
-  -- v0.42.0.0: nullable link_kind distinguishes "plain body mention" from
+  -- v0.41.18.0: nullable link_kind distinguishes "plain body mention" from
   -- "verb-pattern-derived typed link" within link_source='mentions'.
   -- Codex finding #12 design: keep link_source stable; add link_kind
   -- so callers can distinguish without breaking existing mentions queries.
@@ -432,7 +432,7 @@ CREATE TABLE IF NOT EXISTS timeline_entries (
 
 CREATE INDEX IF NOT EXISTS idx_timeline_page ON timeline_entries(page_id);
 CREATE INDEX IF NOT EXISTS idx_timeline_date ON timeline_entries(date);
--- v0.42.0.0 (codex finding #11): widened from (page_id, date, summary) to
+-- v0.41.18.0 (codex finding #11): widened from (page_id, date, summary) to
 -- include `source` so distinct meeting provenance survives. Legacy rows
 -- have source='' (schema default) so legacy dedup behavior is preserved.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_timeline_dedup ON timeline_entries(page_id, date, summary, source);
@@ -603,7 +603,7 @@ CREATE INDEX IF NOT EXISTS op_checkpoints_updated_at_idx
 -- ============================================================
 -- migration_impact_log: before/after metric stats per onboard remediation
 -- ============================================================
--- v0.42.0.0 (gbrain onboard wave). Every completion captured by the
+-- v0.41.18.0 (gbrain onboard wave). Every completion captured by the
 -- onboard remediation pipeline records before/after metric stats so
 -- `gbrain onboard --history --json` can show "you reduced orphans 47%".
 -- delta computed at read time (NOT a stored GENERATED column —

@@ -1,6 +1,6 @@
 #!/bin/bash
 # scripts/check-source-scope-onboard.sh
-# v0.42.0.0 (A26, T17). Grep guard against SQL sites in src/core/onboard/
+# v0.41.18.0 (A26, T17). Grep guard against SQL sites in src/core/onboard/
 # and the 4 new onboard-derived doctor checks that touch source_id-bearing
 # tables (pages, content_chunks, takes, links, timeline_entries) WITHOUT
 # either:

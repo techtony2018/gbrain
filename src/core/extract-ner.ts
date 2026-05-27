@@ -1,5 +1,5 @@
 // src/core/extract-ner.ts
-// v0.42.0.0 (A10, T7). NER link extraction reuses the by-mention gazetteer
+// v0.41.18.0 (A10, T7). NER link extraction reuses the by-mention gazetteer
 // and applies schema-pack `link_types[].inference.regex` patterns to assign
 // a typed link verb ("CEO of Acme" → 'works_at' linking the page to Acme).
 //

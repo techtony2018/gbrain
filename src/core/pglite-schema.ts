@@ -201,7 +201,7 @@ CREATE INDEX IF NOT EXISTS idx_chunks_embedding_image
 -- v0.19.0: partial indexes for code chunk lookups.
 CREATE INDEX IF NOT EXISTS idx_chunks_symbol_name ON content_chunks(symbol_name) WHERE symbol_name IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_chunks_language ON content_chunks(language) WHERE language IS NOT NULL;
--- v0.42.0.0 (codex finding #9): partial index for gbrain embed --stale
+-- v0.41.18.0 (codex finding #9): partial index for gbrain embed --stale
 -- and --priority recent. See src/schema.sql for full rationale.
 CREATE INDEX IF NOT EXISTS content_chunks_stale_idx
   ON content_chunks(page_id, chunk_index) WHERE embedding IS NULL;
@@ -216,11 +216,11 @@ CREATE TABLE IF NOT EXISTS links (
   to_page_id     INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
   link_type      TEXT    NOT NULL DEFAULT '',
   context        TEXT    NOT NULL DEFAULT '',
-  -- v0.42.0.0: 'mentions' added for auto-linked body-text mentions
+  -- v0.41.18.0: 'mentions' added for auto-linked body-text mentions
   -- (gbrain extract links --by-mention). Filtered OUT of backlink-count
   -- for search ranking; only counts toward orphan-ratio + graph traversal.
   link_source    TEXT    CHECK (link_source IS NULL OR link_source IN ('markdown', 'frontmatter', 'manual', 'mentions')),
-  -- v0.42.0.0 (codex finding #12): nullable link_kind distinguishes
+  -- v0.41.18.0 (codex finding #12): nullable link_kind distinguishes
   -- "plain body mention" from "verb-pattern-derived typed link" within
   -- link_source='mentions'. See src/schema.sql for full rationale.
   link_kind      TEXT    CHECK (link_kind IS NULL OR link_kind IN ('plain', 'typed_ner')),
@@ -322,7 +322,7 @@ CREATE TABLE IF NOT EXISTS timeline_entries (
 CREATE INDEX IF NOT EXISTS idx_timeline_page ON timeline_entries(page_id);
 CREATE INDEX IF NOT EXISTS idx_timeline_date ON timeline_entries(date);
 -- Dedup constraint: same (page, date, summary) treated as same event
--- v0.42.0.0 (codex finding #11): widened to include source so distinct
+-- v0.41.18.0 (codex finding #11): widened to include source so distinct
 -- meeting provenance survives. Legacy rows have source='' (schema default).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_timeline_dedup ON timeline_entries(page_id, date, summary, source);
 
@@ -892,7 +892,7 @@ CREATE INDEX IF NOT EXISTS op_checkpoints_updated_at_idx
   ON op_checkpoints (updated_at);
 
 -- ============================================================
--- migration_impact_log (v0.42.0.0 — gbrain onboard wave)
+-- migration_impact_log (v0.41.18.0 — gbrain onboard wave)
 -- ============================================================
 -- See src/schema.sql for full rationale.
 CREATE TABLE IF NOT EXISTS migration_impact_log (

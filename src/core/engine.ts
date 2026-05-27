@@ -127,7 +127,7 @@ export interface LinkBatchInput {
   to_source_id?: string;
   origin_source_id?: string;
   /**
-   * v0.42.0.0 (A10, codex finding #12): distinguishes "plain body mention"
+   * v0.41.18.0 (A10, codex finding #12): distinguishes "plain body mention"
    * (NULL or 'plain') from "verb-pattern-derived typed NER" ('typed_ner')
    * within link_source='mentions'. Backed by v98 schema column. NOT in
    * the links UNIQUE constraint — same (from, to, type, source, origin)
@@ -175,7 +175,7 @@ export interface TimelineBatchInput {
  */
 export interface ReservedConnection {
   /**
-   * v0.42.0.0 (A20, codex #7): optional 3rd-arg `opts.signal` lets callers
+   * v0.41.18.0 (A20, codex #7): optional 3rd-arg `opts.signal` lets callers
    * actually cancel a running query. Init nudge (3s wallclock cap) wires an
    * AbortController whose timer fires at 3s; queries that haven't returned
    * by then get cancelled (Postgres: query.cancel(); PGLite: in-process,
@@ -886,7 +886,7 @@ export interface BrainEngine {
     afterPageId?: number;
     afterChunkIndex?: number;
     sourceId?: string;
-    // v0.42.0.0 (A13, codex #9): pagination order. Default 'page_id'
+    // v0.41.18.0 (A13, codex #9): pagination order. Default 'page_id'
     // (legacy stable cursor). 'updated_desc' joins pages and orders by
     // p.updated_at DESC NULLS LAST, p.id, cc.chunk_index — backed by
     // idx_pages_updated_at_desc + content_chunks_stale_idx partial.
@@ -1638,7 +1638,7 @@ export interface BrainEngine {
 
   // Raw SQL (for Minions job queue and other internal modules)
   /**
-   * v0.42.0.0 (A20, codex #7): optional 3rd-arg `opts.signal` lets callers
+   * v0.41.18.0 (A20, codex #7): optional 3rd-arg `opts.signal` lets callers
    * actually cancel a running query. Init nudge (3s wallclock cap) wires an
    * AbortController whose timer fires at 3s; queries that haven't returned
    * by then get cancelled (Postgres: query.cancel(); PGLite: in-process,

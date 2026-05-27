@@ -322,7 +322,7 @@ describe('Lane D.3 — sync surfaces dim-mismatch recipe at incremental AND firs
 // Lane E.4 — loadRecommendationContext provider-aware key check
 // ─────────────────────────────────────────────────────────────────────
 describe('Lane E.4 — loadRecommendationContext is provider-aware', () => {
-  // v0.42.0.0 (A1): loadRecommendationContext extracted from doctor.ts
+  // v0.41.18.0 (A1): loadRecommendationContext extracted from doctor.ts
   // to src/core/remediation/context.ts so onboard CLI + MCP run_onboard
   // can compose the same context. Source-text grep follows the function
   // to its new home.

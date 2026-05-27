@@ -4415,7 +4415,7 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 95,
     name: 'links_link_source_check_includes_mentions',
-    // v0.42.0.0 Part B (migration #1 of #1409): widen the link_source
+    // v0.41.18.0 Part B (migration #1 of #1409): widen the link_source
     // CHECK constraint to admit 'mentions' for auto-linked body-text
     // mentions from `gbrain extract links --by-mention`. Backlink-count
     // SQL in postgres-engine.ts + pglite-engine.ts excludes link_source =
@@ -4611,7 +4611,7 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 101,
     name: 'links_link_kind_column',
-    // v0.42.0.0 (gbrain onboard wave, A10 + codex finding #12):
+    // v0.41.18.0 (gbrain onboard wave, A10 + codex finding #12):
     // NER link extraction adds a nullable link_kind column instead of
     // splitting link_source='ner' as a new provenance — keeps
     // backlink-count + orphan-ratio queries stable while letting
@@ -4638,7 +4638,7 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 102,
     name: 'timeline_entries_source_in_dedup',
-    // v0.42.0.0 (gbrain onboard wave, A11 + codex finding #11):
+    // v0.41.18.0 (gbrain onboard wave, A11 + codex finding #11):
     // Widen idx_timeline_dedup from (page_id, date, summary) to
     // (page_id, date, summary, source) so --from-meetings provenance
     // survives. Legacy rows have source='' (schema default), so legacy
@@ -4661,7 +4661,7 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 103,
     name: 'migration_impact_log_and_priority_recent_idx',
-    // v0.42.0.0 (gbrain onboard wave, A6 + A25 + A13 + codex #9 + #10):
+    // v0.41.18.0 (gbrain onboard wave, A6 + A25 + A13 + codex #9 + #10):
     // (1) migration_impact_log table — onboard --history backbone with
     //     attribution columns (job_id, source_id, brain_id, started_at,
     //     idempotency_key) so concurrent runs don't misattribute deltas.

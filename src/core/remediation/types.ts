@@ -1,5 +1,5 @@
 // src/core/remediation/types.ts
-// v0.42.0.0 (A1, codex finding #2). Extracted from src/commands/doctor.ts
+// v0.41.18.0 (A1, codex finding #2). Extracted from src/commands/doctor.ts
 // so onboard CLI shell + MCP run_onboard op can compose against a stable
 // library shape — NOT a CLI-shaped function with process.exit calls.
 //
@@ -18,7 +18,7 @@ export interface RemediationPlanOpts {
   /** Target brain_score (default: 90). Used to drive recommendation count. */
   targetScore?: number;
   /**
-   * v0.42.0.0 (A2 + codex #3): caller-supplied RemediationStep entries
+   * v0.41.18.0 (A2 + codex #3): caller-supplied RemediationStep entries
    * threaded into the planner via the third arg of computeRecommendations.
    * Onboard wires the 4 new check helpers (embed_staleness,
    * entity_link_coverage, timeline_coverage, takes_count) here. doctor's
