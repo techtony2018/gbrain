@@ -11,6 +11,12 @@ Based on SkillOpt (arXiv 2605.23904, MSR May 2026).
 
 Required (one of):
   --benchmark <path>            JSONL benchmark file
+  --bootstrap-from-skill        Auto-build a starter benchmark from SKILL.md
+                                itself (no routing-eval needed). Emits ~15 tasks
+                                + rule judges, writes the review sentinel. The
+                                recommended way to start a brand-new benchmark.
+  --bootstrap-tasks N           How many starter tasks --bootstrap-from-skill
+                                generates. Default 15, max 50.
   --bootstrap-from-routing      Auto-build benchmark from routing-eval.jsonl
                                 (writes sentinel; requires --bootstrap-reviewed
                                 after human review)
@@ -67,6 +73,11 @@ Exit codes:
   2 = aborted by gate (dirty tree / over budget / bench validation / etc.)
 
 Examples:
+  # Generate a starter benchmark from the skill itself (recommended):
+  gbrain skillopt meeting-prep --bootstrap-from-skill
+  # ...then review + strengthen the judges, delete the sentinel line, and run:
+  gbrain skillopt meeting-prep --bootstrap-reviewed --split 1:1:1
+
   # Bootstrap benchmark from existing routing-eval, then review:
   gbrain skillopt meeting-prep --bootstrap-from-routing
 

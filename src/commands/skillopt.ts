@@ -8,7 +8,7 @@
 import * as path from 'node:path';
 import { resolveModel } from '../core/model-config.ts';
 import { autoDetectSkillsDirReadOnly } from '../core/repo-root.ts';
-import { runBootstrap } from '../core/skillopt/bootstrap-benchmark.ts';
+import { runBootstrap, runBootstrapFromSkill } from '../core/skillopt/bootstrap-benchmark.ts';
 import { SKILLOPT_HELP_TEXT } from '../core/skillopt/help.ts';
 import { runSkillOpt, parseSplit } from '../core/skillopt/orchestrator.ts';
 import { serializeError, StructuredAgentError } from '../core/errors.ts';
@@ -19,6 +19,9 @@ interface ParsedFlags {
   skillName: string;
   benchmarkPath?: string;
   bootstrapFromRouting: boolean;
+  bootstrapFromSkill: boolean;
+  /** Number of starter tasks for --bootstrap-from-skill (default 15, cap 50). */
+  bootstrapTasks?: number;
   bootstrapReviewed: boolean;
   epochs: number;
   batchSize: number;
@@ -95,6 +98,28 @@ export async function runSkillOptCommand(engine: BrainEngine | null, args: strin
         skillsDir,
         skillName: parsed.skillName,
         optimizerModel,
+        force: parsed.force,
+      });
+      if (parsed.json) {
+        process.stdout.write(JSON.stringify({ ok: true, ...result }) + '\n');
+      }
+      process.exit(0);
+    } catch (err) {
+      handleErrorAndExit(err, parsed.json, 2);
+    }
+  }
+
+  // ── Bootstrap-from-skill mode (short-circuits before the optimization loop) ─
+  // Reads SKILL.md directly (no routing-eval needed), emits a full starter
+  // benchmark, writes the D15 sentinel. Provider errors propagate so the user
+  // sees the real failure instead of "0 tasks".
+  if (parsed.bootstrapFromSkill) {
+    try {
+      const result = await runBootstrapFromSkill({
+        skillsDir,
+        skillName: parsed.skillName,
+        optimizerModel,
+        taskCount: parsed.bootstrapTasks ?? 15,
         force: parsed.force,
       });
       if (parsed.json) {
@@ -300,10 +325,13 @@ export async function runSkillOptCommand(engine: BrainEngine | null, args: strin
   }
 }
 
-function parseFlags(args: string[]): ParsedFlags {
+/** Exported for unit tests (CLI flag parsing, --bootstrap-tasks cap, mutual exclusion). */
+export function parseFlags(args: string[]): ParsedFlags {
   let skillName = '';
   let benchmarkPath: string | undefined;
   let bootstrapFromRouting = false;
+  let bootstrapFromSkill = false;
+  let bootstrapTasks: number | undefined;
   let bootstrapReviewed = false;
   let epochs = 4;
   let batchSize = 8;
@@ -334,6 +362,13 @@ function parseFlags(args: string[]): ParsedFlags {
     if (a === '--help' || a === '-h') { help = true; i += 1; continue; }
     if (a === '--benchmark') { benchmarkPath = args[++i]; i += 1; continue; }
     if (a === '--bootstrap-from-routing') { bootstrapFromRouting = true; i += 1; continue; }
+    if (a === '--bootstrap-from-skill') { bootstrapFromSkill = true; i += 1; continue; }
+    if (a === '--bootstrap-tasks') {
+      const n = mustInt(args[++i], '--bootstrap-tasks');
+      if (n > 50) throw new Error(`--bootstrap-tasks max is 50 (got ${n})`);
+      bootstrapTasks = n;
+      i += 1; continue;
+    }
     if (a === '--bootstrap-reviewed') { bootstrapReviewed = true; i += 1; continue; }
     if (a === '--epochs') { epochs = mustInt(args[++i], '--epochs'); i += 1; continue; }
     if (a === '--batch-size') { batchSize = mustInt(args[++i], '--batch-size'); i += 1; continue; }
@@ -388,6 +423,20 @@ function parseFlags(args: string[]): ParsedFlags {
   if (all && bootstrapFromRouting) {
     throw new Error(`--all and --bootstrap-from-routing are mutually exclusive (run bootstrap per skill)`);
   }
+  // --bootstrap-from-skill is a standalone short-circuit: it cannot combine with
+  // the other-source / multi-run flags. (--background / --follow are already
+  // rejected by the unknown-flag guard since parseFlags doesn't parse them.)
+  if (bootstrapFromSkill) {
+    if (bootstrapFromRouting) throw new Error(`--bootstrap-from-skill and --bootstrap-from-routing are mutually exclusive`);
+    if (benchmarkPath) throw new Error(`--bootstrap-from-skill and --benchmark are mutually exclusive`);
+    if (all) throw new Error(`--bootstrap-from-skill and --all are mutually exclusive (run bootstrap per skill)`);
+    if (targetModelsFleet) throw new Error(`--bootstrap-from-skill and --target-models are mutually exclusive`);
+    if (resumeRunId) throw new Error(`--bootstrap-from-skill and --resume are mutually exclusive`);
+  }
+  // --bootstrap-tasks only applies to --bootstrap-from-skill.
+  if (bootstrapTasks !== undefined && !bootstrapFromSkill) {
+    throw new Error(`--bootstrap-tasks requires --bootstrap-from-skill`);
+  }
   // --target-models and --target-model are mutually exclusive.
   if (targetModelsFleet && targetModel) {
     throw new Error(`--target-models and --target-model are mutually exclusive`);
@@ -402,6 +451,8 @@ function parseFlags(args: string[]): ParsedFlags {
     skillName,
     ...(benchmarkPath !== undefined ? { benchmarkPath } : {}),
     bootstrapFromRouting,
+    bootstrapFromSkill,
+    ...(bootstrapTasks !== undefined ? { bootstrapTasks } : {}),
     bootstrapReviewed,
     epochs,
     batchSize,
