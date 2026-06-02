@@ -87,6 +87,13 @@ command, no migration.
   the structured shape the SDK expects, so the loop round-trips. Surfaced end-to-end by the
   SkillOpt real-LLM eval — the kind of bug only running the feature against a live model
   catches.
+- **Budget-capped Haiku runs no longer score a silent zero.** Claude Haiku 4.5's
+  canonical (dateless) model id was missing from the pricing table, so any cost-capped run
+  on Haiku (`gbrain skillopt --max-cost`, eval harnesses) hit "no pricing entry" on the
+  first model call of every rollout, which the validation gate then swallowed as a `0`
+  score — a pricing crash that looked exactly like a real "0 out of N" measurement. The
+  pricing entry is added, and the gate now re-throws budget/pricing errors loudly instead
+  of recording a hollow zero. Surfaced by the SkillOpt real-LLM eval.
 - **`--no-mutate` now writes `proposed.md`** with the winning rewrite (was a stub that
   wrote nothing).
 - **`--max-runtime-min` is enforced** via a wall-clock deadline between optimization steps.

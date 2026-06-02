@@ -20,7 +20,7 @@
  * which is cached (D11), so the effective cost ~1.3x not 3x.
  */
 
-import { runWithLimit } from '../worker-pool.ts';
+import { runWithLimit, isMustAbortError } from '../worker-pool.ts';
 import { runRollout, type RolloutOpts } from './rollout.ts';
 import { scoreTrajectory } from './score.ts';
 import type { BenchmarkTask, GateInput, GateResult, ScoredRollout } from './types.ts';
@@ -94,8 +94,16 @@ export async function runValidationGate(opts: ValidateGateOpts): Promise<GateRes
     signal: opts.abortSignal,
   });
 
-  // SettledItem<TOut>[] — extract successful results; treat errors as score=0
-  // (pessimistic fallback consistent with the judge fail-open posture).
+  // MUST-ABORT errors (budget exhaustion / no-pricing) are NOT scoring noise —
+  // swallowing them as score=0 turns a pricing/cap crash into a fake "0/N" run
+  // (the bug the SkillOpt eval surfaced: a Haiku run with --max-cost hit
+  // no_pricing on every rollout and the whole gate reported a vacuous 0). Surface
+  // them loudly so the caller aborts instead of recording a hollow measurement.
+  const aborter = settled.find((s) => s && !s.ok && isMustAbortError(s.error));
+  if (aborter && !aborter.ok) throw aborter.error;
+
+  // SettledItem<TOut>[] — extract successful results; treat (non-abort) errors as
+  // score=0 (pessimistic fallback consistent with the judge fail-open posture).
   // Errored tasks contribute no scoredRollouts (caller's reflect sees fewer
   // trajectories rather than fabricated zero-score entries).
   const perTaskMedians = settled.map((s, idx) => {
