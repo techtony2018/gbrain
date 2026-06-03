@@ -882,9 +882,11 @@ export interface SearchOpts {
   types?: PageType[];
   exclude_slugs?: string[];
   /**
-   * Slug-prefix excludes — additive over DEFAULT_HARD_EXCLUDES (test/, archive/,
+   * Slug-prefix excludes — additive over DEFAULT_HARD_EXCLUDES (test/,
    * attachments/, .raw/) and the GBRAIN_SEARCH_EXCLUDE env var. Stacks with
    * `exclude_slugs` (exact match) — a row is filtered if it matches either set.
+   * NOTE (issue #1777): `archive/` is NOT hard-excluded; it is demoted (0.5x)
+   * via DEFAULT_SOURCE_BOOSTS so archived content stays findable by default.
    */
   exclude_slug_prefixes?: string[];
   /**

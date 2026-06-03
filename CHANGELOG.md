@@ -98,6 +98,329 @@ Evidence + the mechanical foundation this builds on: #1678 / #1735.
   `test/doctor-pool-reap-health.test.ts`, `test/audit/pool-recovery-audit.test.ts`,
   `test/extract-atoms-drain-handler.test.ts`, `test/autopilot-auto-drain-wiring.test.ts`,
   plus extensions to `test/extract-atoms-drain.test.ts`.
+## [0.42.15.0] - 2026-06-02
+
+**Commands print real data when you run them from a subagent, a pipe, or cron, not just when you have a terminal.** A handful of gbrain commands quietly changed what they printed based on whether a terminal was attached. Run them from a coding agent, a `| cat` pipe, or a cron job and you'd get JSON when you wanted human text, or nothing useful at all. The read commands (`get`, `list`, `search`, `query`) were already fine; this fixes the ones that weren't.
+
+The clearest case was `gbrain jobs watch`. In a terminal you got the live dashboard; piped or from a subagent you got an endless stream of JSON with no way to a human view. Now the rule is simple and the same for every command: **human output by default, JSON only when you pass `--json`.** A terminal still controls cosmetics (the live cursor-managed dashboard, colors), never the data.
+
+```
+gbrain jobs watch                 # terminal: live dashboard. piped: one human snapshot, then exits.
+gbrain jobs watch --json          # one JSON snapshot (machine-readable)
+gbrain jobs watch --follow        # stream continuously (human, or JSONL with --json)
+```
+
+`jobs watch` split into two independent knobs: `--json` picks the format, `--follow` picks the cadence. Non-interactive runs print one snapshot and exit (clean for capture), so a subagent that just wants the current queue state gets it in one shot instead of a loop it has to kill.
+
+### What else changed
+
+- **`gbrain reindex --code` refusal is now readable.** When it declines to spend money re-embedding without `--yes` in a non-interactive shell, it now prints a plain-English refusal instead of a JSON error blob (JSON only with `--json`). The safety behavior is unchanged: it still refuses and exits 2 rather than spending unconfirmed.
+- **The eval commands stop hiding why they did less work.** `gbrain eval cross-modal` and `gbrain eval takes-quality` run fewer cycles non-interactively (a deliberate cost guard). They already printed the cycle count; now the line says *why* it's low and how to change it: `cycles: 1 (non-interactive default; --cycles N for more)`. Same for the `$1` budget default on `gbrain eval suspected-contradictions` (`--budget-usd N to raise`).
+
+Nothing here changes a TTY/interactive session: the live `jobs watch` dashboard, prompts, and your normal terminal output are all identical.
+
+## To take advantage of v0.42.15.0
+
+`gbrain upgrade` is all you need. There's no migration and no schema change.
+
+1. **Update:**
+   ```bash
+   gbrain upgrade
+   ```
+2. **Verify the fix:** run a command non-interactively and confirm you get real output.
+   ```bash
+   gbrain jobs watch </dev/null | cat        # one human snapshot, exits 0
+   gbrain jobs watch --json </dev/null | cat # one JSON line
+   ```
+3. **If you scripted `gbrain jobs watch` for a JSON stream non-interactively,** add `--json --follow` to keep the old streaming behavior. (For scripting, `gbrain jobs stats --json` / `gbrain jobs list --json` remain the cleaner surfaces.)
+4. **If anything looks wrong,** file an issue at https://github.com/garrytan/gbrain/issues with the command you ran and what you saw.
+## [0.42.14.0] - 2026-06-02
+
+**Two zero-config gaps closed: code-* queries now tell you whether the graph is built, and `gbrain init` tells you up front when your embedding key is missing.**
+
+Ask `gbrain code-callers foo` and get nothing back, and until now you had no way to know whether that meant "this symbol genuinely has no callers" or "the code graph isn't built yet." Same for `code-def`, `code-refs`, `code-callees`. An agent would see `count: 0` and confidently conclude "no callers" while the source was still indexing or had never been synced. This release adds a typed readiness field so the empty answer is honest.
+
+```
+gbrain code-callers parseMarkdown --json
+# count: 0, status: "not_built", ready: false   → no code indexed; run `gbrain sync`
+# count: 0, status: "indexing",  ready: false   → edges still resolving; retry after `gbrain dream`
+# count: 0, status: "ready",     ready: true    → genuinely no callers, trust it
+```
+
+`count: 0 + ready: true` means "genuinely none." `ready: false` means "ask later." Both the CLI and the MCP tools (`code_def`, `code_refs`, `code_callers`, `code_callees`) carry the field; human output prints a one-line hint telling you exactly what to run. `code-def`/`code-refs` are ready as soon as code is synced (their data is set at chunk time); `code-callers`/`code-callees` also report `indexing` until the call graph is resolved.
+
+**`gbrain init` now checks your embedding key before first sync.** Before, init happily saved `--embedding-model openai:...` without ever checking the key was set; then your first `gbrain sync` imported every page but embedded zero of them, and search came back empty. Now init runs a free config check (is the key present, for any provider?) plus a tiny test embed (does the key actually work?) and warns loudly if either fails:
+
+```
+Heads up: embedding is configured but not ready.
+Model "openai:text-embedding-3-large" needs OPENAI_API_KEY — not set in your shell or ~/.gbrain/config.json.
+```
+
+Init still exits 0 so deferred setup keeps working. The check correctly sees keys set in `~/.gbrain/config.json` (not just the shell), and `--no-embedding` or the new `--skip-embed-check` skip it.
+
+**Crashed cycle locks self-heal faster.** If a `gbrain dream`/sync process crashed while holding the cycle lock, the next run waited out the full 30-minute TTL. Now, when the dead holder is on the same machine and provably gone, the lock is reclaimed automatically after a 60-second grace (a guard against PID reuse). Cross-host locks stay TTL-only. `gbrain sync --break-lock` got the same liveness fix — it no longer treats a permission-denied probe (a live process you don't own) as dead.
+
+## To take advantage of v0.42.14.0
+
+`gbrain upgrade` handles everything — no schema migration in this release.
+
+1. **Readiness:** `gbrain code-callers <symbol> --json` and read the new `status` / `ready` fields. `ready: false` means wait and retry; `ready: true` with `count: 0` means genuinely none.
+2. **Init check:** next time you run `gbrain init` with an embedding model, a missing or invalid key warns immediately. Set the key and re-run `gbrain sync`, or pass `--no-embedding` to defer.
+3. **Lock self-heal is automatic** — nothing to configure.
+
+If anything looks off, file an issue with the output of `gbrain doctor`: https://github.com/garrytan/gbrain/issues
+
+### Itemized changes
+
+- **`src/core/code-graph-readiness.ts` (new)** — `resolveCodeReadiness(engine, {kind, count, sourceId?, allSources?})` returns `{status: 'not_built' | 'indexing' | 'ready' | 'unknown', ready, has_code, pending_edges}`. `count > 0` short-circuits to `ready` with no query; on empty it runs `EXISTS` probes (no `page_kind` index needed; the pending probe rides the partial `idx_content_chunks_edges_backfill`). `kind: 'symbol'` (code-def/refs) is 2-state and brain-wide; `kind: 'edge'` (callers/callees) is 3-state and source-scoped, with the pending predicate mirroring the resolver (`edges_backfilled_at IS NULL OR < EDGE_EXTRACTOR_VERSION_TS`) so a resolver-version bump doesn't falsely report `ready`. Scope matches the result query's `deleted_at` posture; any DB error returns `unknown` (fail-open). `readinessHint()` renders the human one-liner.
+- **`src/commands/code-def.ts`, `code-refs.ts`, `code-callers.ts`, `code-callees.ts`** — each JSON envelope gains `status` + `ready`; human output prints the hint when not ready. callers/callees pass their resolved `sourceId` / `allSources`; def/refs query brain-wide.
+- **`src/core/operations.ts`** — the four `code_*` MCP op handlers stamp `status` + `ready` on their result envelopes.
+- **`src/core/init-embed-check.ts` (new)** — `runInitEmbedCheck()` builds the effective env (process.env + file-plane `openai/anthropic/zeroentropy_api_key` + `--key`), reconfigures the gateway via `buildGatewayConfig`, runs `diagnoseEmbedding` (config-only), then a best-effort `liveTestEmbed` (1 token, 5s `AbortController` timeout, never throws). Init-specific warning names `--no-embedding` / `--skip-embed-check`.
+- **`src/core/ai/build-gateway-config.ts` (new)** — `buildGatewayConfig` extracted from `src/cli.ts` (which now re-exports it) so core modules reuse it without importing the CLI entrypoint. Folds file-plane API keys + provider base URLs into the gateway config; `process.env` wins.
+- **`src/commands/init.ts`** — new `--skip-embed-check` flag (also `GBRAIN_INIT_SKIP_EMBED_CHECK=1`); replaces the prior ZeroEntropy-only warning in both the PGLite and Postgres paths with the generalized check; `embedding_check {ok, reason?, live_ok?}` added to the `--json` success envelope; help text updated.
+- **`src/core/db-lock.ts`** — `tryAcquireDbLock` adds same-host dead-pid auto-takeover (guarded `DELETE WHERE id=$1 AND holder_pid=$2` + one normal-upsert retry returning the standard handle). New exported `classifyHolderLiveness` / `isHolderDeadLocally` (injectable `process.kill` seam; `HOLDER_TAKEOVER_GRACE_MS = 60_000`; EPERM classified as `alive`, never reclaimed). TTL-expired locks stay the upsert's job; cross-host stays TTL-only.
+- **`src/commands/sync.ts`** — `runBreakLock`'s safe path consumes the shared `classifyHolderLiveness` predicate, fixing the prior bug where any `process.kill` throw (including EPERM) counted the holder as dead.
+- **Tests** — `test/code-graph-readiness.test.ts` (11), `test/db-lock-auto-takeover.test.ts` (11), `test/init-embed-check.test.ts` (9, hermetic via the gateway embed-transport seam + `withEnv`), plus readiness-envelope cases added to `test/e2e/code-intel-mcp-ops-pglite.test.ts`. Closes #1780.
+## [0.42.13.0] - 2026-06-02
+
+**Pages under `archive/` are findable again.** If you committed a note to your brain under `archive/` (old conversation exports, prior-system logs, notes you filed away), GBrain was embedding it and graphing it but then hiding it from every search. You would search for an exact phrase you knew was in the page, get nothing back, and conclude the page did not exist. It did. A hardcoded list was quietly dropping the whole `archive/` subtree from results unless you knew to pass a special flag.
+
+The rule should be simple: if it is committed to your brain, it should be findable. So `archive/` is no longer hidden. It is now ranked a bit lower than your curated content (essays, concepts, people) so old archived material does not crowd out your best pages, but it shows up. A genuinely strong match in `archive/` can still rise to the top when the reranker says it is the best answer.
+
+`test/`, `attachments/`, and `.raw/` stay hidden. Those are real noise.
+
+You do not need to do anything. Re-run a search that used to come up empty:
+
+```
+gbrain search "<a phrase you know is in an archived page>"
+```
+
+New `gbrain doctor` check `hidden_by_search_policy` reports how many pages are still withheld from default search by the remaining exclude prefixes, so an empty result is never silently a policy decision again:
+
+```
+gbrain doctor --json    # look for the hidden_by_search_policy check
+```
+
+**What you would see in a search for "widget"** when `concepts/widget-pattern` and `archive/old/widget-2020` both match:
+
+| Page | Before | After |
+|---|---|---|
+| `concepts/widget-pattern` | returned (rank 1) | returned (rank 1) |
+| `archive/old/widget-2020` | **withheld** | returned (rank 2, demoted) |
+| `test/fixtures/widget` | withheld | withheld |
+
+**Things to watch after upgrade:** the search result cache gets a one-time full refresh on first use (the exclude-policy change is folded into the cache key so stale archive-excluded results can not be served); it refills within an hour. If you run the contradictions probe, archived pages now classify in its `bulk` source tier instead of `other` — archive is bulk-ish historical content, so that is the right bucket.
+
+## To take advantage of v0.42.13.0
+
+`gbrain upgrade` handles this automatically. There is no migration. If a search that should return an archived page still comes up empty after upgrade:
+
+1. **Confirm the page is in the brain and chunked:**
+   ```bash
+   gbrain doctor --json    # hidden_by_search_policy lists what's withheld by prefix
+   ```
+   `archive/` should NOT appear in that list. `test/` / `attachments/` / `.raw/` may.
+2. **Re-run the search:**
+   ```bash
+   gbrain search "<phrase from the archived page>"
+   ```
+3. **If it still misses,** the page may genuinely have no chunks (never embedded). Run `gbrain embed --stale`, then search again.
+4. **If something looks wrong,** file an issue: https://github.com/garrytan/gbrain/issues with your `gbrain doctor` output and the query.
+
+### Itemized changes
+
+- `archive/` removed from `DEFAULT_HARD_EXCLUDES` and added to `DEFAULT_SOURCE_BOOSTS` at `0.5` (`src/core/search/source-boost.ts`). Findable by default, ranked below curated content. The demote is a prior applied in the SQL/fusion layer; the cross-encoder reranker can still promote a strongly-matching archive page that survives the demote into the rerank candidate window.
+- New `gbrain doctor` check `hidden_by_search_policy` (`src/commands/doctor.ts`, wired into both the local and remote/thin-client paths; `src/core/doctor-categories.ts`). Counts chunked pages withheld by each active exclude prefix in one SQL query, reusing the canonical `resolveHardExcludes` + `buildVisibilityClause` + `escapeLikePattern` so the count mirrors what search actually filters. `ok` for intentional default excludes (with a prescriptive, agent-readable message), `warn` only when a non-default `GBRAIN_SEARCH_EXCLUDE` prefix is hiding pages.
+- `KNOBS_HASH_VERSION` bumped 8 to 9 (`src/core/search/mode.ts`). The search-exclude policy is not part of the cache key, so the bump is what invalidates archive-excluded `query_cache` rows on upgrade. One-time global cache cold-miss; refills within `cache.ttl_seconds`.
+- `escapeLikePattern` is now exported from `src/core/search/sql-ranking.ts` (was test-only) so the doctor check escapes env-supplied prefixes with `ESCAPE '\'` instead of re-implementing it.
+- Docs + comment sweep: `docs/architecture/RETRIEVAL.md`, `src/core/types.ts`, `src/core/postgres-engine.ts` no longer describe `archive/` as a default hard-exclude.
+
+### For contributors
+
+- Verified on both PGLite (in-memory e2e) and real Postgres (seeded container smoke): archive findable + demoted below curated, `test/`/`.raw/`/`attachments/` still hidden, the new doctor SQL runs clean on both engines.
+- Side-effect documented above: adding `archive/: 0.5` to `DEFAULT_SOURCE_BOOSTS` reclassifies archive pages in the contradictions probe's source-tier breakdown (`src/core/eval-contradictions/cross-source.ts`) from `other` to `bulk` (boost < 0.95). Benign; no code change.
+## [0.42.12.0] - 2026-06-02
+
+**GBrain now keeps itself current the way your coding agent already keeps gstack current: it rides every invocation.** Until now, a gbrain install would quietly drift. You'd run an old binary against a newer brain schema, `gbrain doctor` would mutter about it, and nobody would act. There was no nudge at the moment you'd actually see it.
+
+Now every `gbrain` command is a heartbeat. On a new release it prints a one-line nudge to stderr, and `gbrain self-upgrade` applies it. This works the same on Claude Code, Codex, OpenClaw, Hermes, and Perplexity, because they all run gbrain. No cron to install, no per-agent setup, no capability detection. The check is cache-read-only on the hot path, so `gbrain search` is not one millisecond slower; the actual network refresh happens detached in the background and never blocks a command.
+
+Default is **notify** (a nudge, never a surprise upgrade). If you run an always-on install (an OpenClaw daemon, or the `gbrain serve` host behind a thin client) and want it hands-off, opt in once:
+
+```
+gbrain config set self_upgrade.mode auto
+```
+
+In `auto` mode the autopilot daemon applies upgrades silently, but only during quiet hours, only when the brain is idle (no running jobs, no in-flight requests), and only after a post-upgrade `gbrain doctor` passes. A release that fails doctor is recorded and never retried.
+
+What you'd see, by agent kind:
+
+| Agent | What happens | Default |
+|---|---|---|
+| Claude Code / Codex | nudge on stderr, you run `gbrain self-upgrade` | notify |
+| OpenClaw / Hermes daemon | nudge; set `auto` for hands-off | notify |
+| `gbrain serve` host | nudge; set `auto` for hands-off (idle-gated) | notify |
+| Perplexity / thin client | nudge is informational; the server self-upgrades | n/a |
+
+The `binary` install method (the compiled standalone) now does a **real atomic self-update** on macOS-arm64 and Linux-x64: it downloads the published release asset, smoke-tests it, then atomically renames it over the running binary. Any failure leaves your old binary untouched. There is no half-written-binary brick path. Other platforms degrade to a notify nudge.
+
+Things worth knowing: this is the same TLS-plus-GitHub trust model `gbrain upgrade` already used. Signature verification is a deliberate follow-up (tracked in TODOS), which is why `auto` stays opt-in rather than a default. The auto-update guide reversed its old "never auto-upgrade" stance to document the opt-in path and its gates.
+
+### To take advantage of v0.42.12.0
+
+`gbrain upgrade` does this automatically. After it, every invocation nudges you when a release lands.
+
+1. **Nothing required for the nudge** — it rides your next `gbrain` command.
+2. **Hands-off on an always-on install:** `gbrain config set self_upgrade.mode auto`
+3. **Turn it off entirely:** `gbrain config set self_upgrade.mode off`
+4. **Verify:**
+   ```bash
+   gbrain self-upgrade --check-only --json
+   gbrain doctor --json | grep self_upgrade_health
+   ```
+5. If anything looks wrong, file an issue with `gbrain doctor` output and `~/.gbrain/upgrade-errors.jsonl`.
+
+### Itemized changes
+
+- **`gbrain self-upgrade [--check-only] [--force] [--json]`** — the universal entry point both the agent skill and the silent channel call.
+- **Invocation marker** baked into CLI startup (cache-read-only, detached single-flight refresh, skip-set + recursion guard) and surfaced on the `get_brain_identity` MCP response.
+- **Autopilot silent channel** (opt-in `auto`): swap-only + breadcrumb + exit-for-relaunch. `installSystemd` now writes `Restart=always` (a clean exit must relaunch the new binary, since Bun has no `execve`); `gbrain upgrade` rewrites an existing `Restart=on-failure` unit in place (only when it matches the generated template; hand-edited units are left alone).
+- **Atomic binary self-update** (`src/core/binary-self-update.ts`) for macOS-arm64 / Linux-x64; `gbrain upgrade --swap-only` for the daemon fast path.
+- **`gbrain doctor` → `self_upgrade_health`**: mode, whether you're behind, recent failures.
+- **New `gbrain-upgrade` agent skill** mirroring the inline upgrade flow, wired into the resolver. The notify prompt now shows **what's new** (the changelog between your version and the new one, surfaced by `gbrain self-upgrade --check-only --json`), not just version numbers.
+- **Agent integration:** `setup` injects a self-upgrade marker protocol into AGENTS.md so interactive agents (Claude Code, Codex) act on the `UPGRADE_AVAILABLE` stderr marker; the daily HEARTBEAT beat routes through the skill for cron-cadence agents (OpenClaw, Hermes); `auto`-mode daemons ride the autopilot tick.
+- Config plane: `self_upgrade.mode` (`auto`/`notify`/`off`, default notify) plus quiet-hours and state keys, all file-plane so the hot path needs no DB.
+- New tests: pure decision matrix, atomic-cache/snooze, marker grammar, a real-HTTP-server binary-swap E2E, and a network-stubbed refresh-orchestration test.
+
+#### For contributors
+
+- `src/core/semver.ts` extracted from `check-update.ts` (re-exported for back-compat) to break an import cycle with the self-upgrade module.
+## [0.42.11.0] - 2026-06-03
+
+**Self-improving skills can no longer cheat. When you run `gbrain skillopt` to let
+a skill rewrite itself, it now has to prove the change actually helps on a set of
+tasks it wasn't optimized against — and for the skills gbrain ships, it won't
+overwrite them in place unless you hand it that independent check.**
+
+Here is the problem. `gbrain skillopt` treats a skill's SKILL.md as something it
+can edit and re-score against a benchmark, keeping edits that score higher. The
+trap: an edit can score higher on its own benchmark while quietly getting worse at
+the real job (classic "teaching to the test"). Until now the safety net for that —
+a held-out check — was documented but never actually wired in, the run's report
+showed a fake baseline score of 0, and a "final test" score was never computed. So
+you couldn't tell from the receipt whether a skill genuinely improved.
+
+This release makes the loop honest. Pass `--held-out <file.jsonl>` (a set of tasks
+with different IDs than your benchmark) and a candidate that climbs the benchmark
+but slips on the held-out set is refused. The run report now records the real
+baseline score and a real test-set score, so "did this skill get better" is a
+number you can read. `--no-mutate` finally writes the proposed rewrite to disk for
+review (it was a stub), and `--max-runtime-min` is actually enforced.
+
+For the ~47 skills gbrain ships, the bar is higher: mutating one in place now
+*requires* `--held-out` with at least 5 independent tasks. Without it you get a
+`proposed.md` to review instead of a silent overwrite. The held-out file must use
+task IDs disjoint from the benchmark — point it at a copy of the benchmark and the
+run refuses, because an overlapping check can't catch overfitting.
+
+The `run_skillopt` MCP tool got a security tighten in the same pass: it validates
+the skill name and confines benchmark/held-out paths to the skills directory for
+remote callers, so an admin token can't read arbitrary host files through it.
+
+## To take advantage of v0.42.11.0
+
+`gbrain upgrade` is all you need — these are behavior changes to an existing
+command, no migration.
+
+1. **Optimize a user skill with the new safety net:**
+   ```bash
+   gbrain skillopt my-skill --held-out skills/my-skill/held-out.jsonl
+   ```
+   The held-out file is the same JSONL shape as the benchmark, with task IDs that
+   do NOT appear in the benchmark.
+2. **Optimize a bundled (shipped) skill in place** — now requires the held-out
+   check; otherwise it writes `proposed.md` for review:
+   ```bash
+   gbrain skillopt brain-ops --allow-mutate-bundled --held-out skills/brain-ops/held-out.jsonl
+   ```
+3. **Read the honest receipt:** `gbrain skillopt ... --json` now reports
+   `baseline_sel_score`, `best_sel_score`, `baseline_test_score`, and `test_score`.
+
+### Itemized changes
+
+#### Added
+- **Held-out validation gate (F11) is now wired into the optimizer loop.** `--held-out <path>`
+  (CLI), `held_out_path` (background job + `run_skillopt` MCP op), and `heldOutPath`
+  (batch/fleet) load an independent task set; the gate runs at checkpoint acceptance
+  and blocks any candidate whose held-out score regresses below baseline. Previously
+  `runHeldOutGate` existed but nothing called it.
+- **Final-test eval.** After optimization, the best skill and the baseline are scored
+  on the held-out test split; receipts now carry `test_score` + `baseline_test_score`.
+- **Shared `scoreSkillOnTasks` primitive** (`validate-gate.ts`) used by the baseline
+  eval, final-test, held-out gate, and external eval harnesses so they can't drift.
+
+#### Changed
+- **Bundled-skill mutation requires a non-empty held-out set (>=5 tasks).** Enforced in
+  core mutation policy (`assertBundledMutationHeldOut`), so it fires for every entry
+  point — CLI, batch, fleet, background job, and the `run_skillopt` MCP op. Without it,
+  the run hard-refuses (exit 2) and points you at `proposed.md`.
+- **Held-out must be independent of the benchmark.** A held-out file sharing task IDs
+  with the benchmark is rejected (an overlapping check can't catch overfitting).
+- **Honest receipts.** `baseline_sel_score` is the real measured baseline (was hardcoded
+  to 0).
+- **`run_skillopt` MCP op hardening:** validates `skill_name` is kebab-case and confines
+  caller-supplied benchmark/held-out paths to the skills directory for remote callers.
+
+#### Fixed
+- **Multi-turn tool loops work again.** Any agent loop that calls a tool and feeds the
+  result back (`gbrain skillopt` rollouts AND production background subagent jobs) was
+  crashing the moment the model called a tool, with "messages do not match the
+  ModelMessage[] schema". The shipped AI SDK had tightened its message + tool-schema
+  validation; the gateway now wraps tool schemas correctly and converts tool results into
+  the structured shape the SDK expects, so the loop round-trips. Surfaced end-to-end by the
+  SkillOpt real-LLM eval — the kind of bug only running the feature against a live model
+  catches.
+- **Budget-capped Haiku runs no longer score a silent zero.** Claude Haiku 4.5's
+  canonical (dateless) model id was missing from the pricing table, so any cost-capped run
+  on Haiku (`gbrain skillopt --max-cost`, eval harnesses) hit "no pricing entry" on the
+  first model call of every rollout, which the validation gate then swallowed as a `0`
+  score — a pricing crash that looked exactly like a real "0 out of N" measurement. The
+  pricing entry is added, and the gate now re-throws budget/pricing errors loudly instead
+  of recording a hollow zero. Surfaced by the SkillOpt real-LLM eval.
+- **The optimizer now knows what the scorer rewards.** `gbrain skillopt`'s reflect step
+  was only shown a pass/fail score and the agent's transcript, never the benchmark's
+  success criteria — so on a skill judged by structure (e.g. "must include a Confidence:
+  line") it proposed plausible-but-off edits that never satisfied the check, every
+  candidate scored 0, the validation gate rejected them all, and the skill never changed.
+  The reflect prompt now includes a plain-English description of exactly how the output is
+  scored, with an instruction to satisfy it through genuine content, not empty keywords.
+  In an end-to-end run this took a deficient skill from 0.00 to 1.00 on a held-out set it
+  never trained on. Reward-hacking is still defended by the independent held-out gate.
+  Surfaced by the SkillOpt real-LLM eval.
+- **`--no-mutate` now writes `proposed.md`** with the winning rewrite (was a stub that
+  wrote nothing).
+- **`--max-runtime-min` is enforced** via a wall-clock deadline between optimization steps.
+
+### For contributors
+- Eval-internal ablation knobs on `runSkillOpt` (not exposed on the CLI): `reflectMode`
+  (`'both'`/`'failure-only'`), `disableValidationGate`, and `optimizerMode`
+  (`'reflect'`/`'one-shot-rewrite'`), recorded in the receipt + audit for replayability.
+  These drive the SkillOpt benchmark suite in the sibling `gbrain-evals` repo.
+- New tests: `test/skillopt/rollout.test.ts`, held-out + one-shot-rewrite unit cases, and
+  e2e coverage for the held-out gate (block/allow), bundled enforcement, no-mutate write,
+  runtime deadline, receipt honesty, and no-DB-pollution.
+- **CLAUDE.md restructured into a thin orientation + resolver (592KB → 39KB).** The per-file
+  index, command surface, test discipline, thin-client routing, and the verbose release
+  process moved to on-demand docs (`docs/architecture/KEY_FILES.md`, `docs/TESTING.md`,
+  `docs/architecture/thin-client.md`, `docs/RELEASING.md`); CLAUDE.md keeps the North Star,
+  architecture + cross-cutting invariants, the IRON RULES, and a reference map that routes to
+  the detail. Per-file entries are now current-state only — release history lives in
+  CHANGELOG + git. `scripts/check-key-files-current-state.sh` (wired into `bun run verify`)
+  fails the build if append-only version narration returns to the reference docs or CLAUDE.md
+  grows past its cap, so the bloat cannot recur. The llms bundle drops from ~740KB to ~204KB.
+  `scripts/ci-cache-hash.sh` now keeps the relocated policy docs test-affecting so a change to
+  them still invalidates the CI cache.
+
 ## [0.42.10.0] - 2026-06-02
 
 **Wikilinks like `[[struktura]]` that point at pages in another folder finally connect.** Until now, if you wrote `[[struktura]]` in `concepts/knowledge-graph.md` and the actual page lived at `projects/struktura.md`, GBrain silently dropped the link from its graph. Obsidian users saw a dense web of connections in their vault and a thin, broken graph inside GBrain. The issue reporter had 71 wikilinks across 20 pages — GBrain captured 12.
@@ -162,6 +485,7 @@ Closes https://github.com/garrytan/gbrain/issues/972.
 - `KNOWN_CONFIG_KEYS` (in `src/core/config.ts`) adds `'link_resolution'` and `'link_resolution.global_basename'` so `gbrain config set ...` accepts the new key without `--force`.
 - Tests: 38 new cases pinning the contract. `test/link-extraction.test.ts` adds 17 cases covering `WIKILINK_GENERIC_RE` shape (anchor / display / strip / escape paths), the `extractEntityRefs` pass-2c no-double-emit invariant, `resolveBasenameMatches` multi-match + index-built-once + missing-`getAllSlugs` degradation, and the `extractPageLinks` opt routing under both flag states. `test/extract-fs.test.ts` adds 11 cases for the pure-function helpers (`resolveBasenameMatchesFromSlugs`, `resolveSlugAll`) plus 3 round-trip tests of the issue's exact repro inside a PGLite brain. `test/doctor.test.ts` adds 7 cases for the new doctor check (skip / ok / warn paths + the cross-surface wiring source-grep). `test/e2e/global-basename-pglite.test.ts` adds 7 end-to-end cases against an in-memory PGLite brain covering FS-source, DB-source, and put_page auto-link paths under both flag states.
 - PR #1233 from @rayers contributed the kernel of the resolver-side approach (the generic wikilink regex + slug-tail index pattern). This PR keeps that mechanism, makes it opt-in via the new config flag, replaces the first-write-wins lookup with multi-match return, and extends the coverage to the FS-source path that the issue's repro actually hits.
+
 ## [0.42.8.0] - 2026-06-01
 
 **Scraped junk stops landing in your brain as if it were real content, and when something looks off, your agent gets told instead of being left to guess.**

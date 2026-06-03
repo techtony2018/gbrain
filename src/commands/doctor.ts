@@ -41,6 +41,12 @@ import { lagFromContentMs } from '../core/source-health.ts';
 import { CHUNKER_VERSION } from '../core/chunkers/code.ts';
 import { LINK_EXTRACTOR_VERSION_TS } from '../core/link-extraction.ts';
 import { isUndefinedColumnError } from '../core/utils.ts';
+// issue #1777: hidden_by_search_policy — count chunked pages withheld from
+// default search by the hard-exclude prefix policy. Reuses the canonical
+// exclude resolver + LIKE escaper + visibility clause so the doctor count can't
+// drift from what search actually filters.
+import { resolveHardExcludes, DEFAULT_HARD_EXCLUDES } from '../core/search/source-boost.ts';
+import { escapeLikePattern, buildVisibilityClause } from '../core/search/sql-ranking.ts';
 
 export interface Check {
   name: string;
@@ -742,6 +748,11 @@ export async function doctorReportRemote(engine: BrainEngine): Promise<DoctorRep
   //   - synopsis-failures audit JSONL entries from the last 7 days
   checks.push(await checkContextualRetrievalCoverage(engine));
 
+  // issue #1777 — hidden_by_search_policy: chunked pages withheld from default
+  // search by the hard-exclude prefix policy. Pure SQL COUNT, safe on the
+  // remote/thin-client path.
+  checks.push(await checkHiddenBySearchPolicy(engine));
+
   // 11a. issue #972 link_resolution_opportunity — same check the local
   // doctor runs at the equivalent slot in buildChecks. Mirrored for
   // thin-client parity so `gbrain remote doctor` sees the same hint.
@@ -753,7 +764,71 @@ export async function doctorReportRemote(engine: BrainEngine): Promise<DoctorRep
   //   - Three-state: ok / warn / fail.
   checks.push(await checkFederationHealth(engine));
 
+  // 13. v0.42 self_upgrade_health: mode, whether behind, recent failures.
+  // File-plane only (no engine) — works on thin clients too.
+  checks.push(checkSelfUpgradeHealth());
+
   return computeDoctorReport(checks);
+}
+
+/**
+ * v0.42 self_upgrade_health. Surfaces the self-upgrade mode, whether an update
+ * is pending (from the cache), and any recent failed auto-upgrade attempts.
+ * File-plane only (no DB) so it runs on thin clients. Three-state: warn on
+ * recent failures, otherwise ok.
+ */
+export function checkSelfUpgradeHealth(): Check {
+  try {
+    const { loadConfig } = require('../core/config.ts');
+    const {
+      resolveSelfUpgradeMode,
+      readUpdateCache,
+      isCacheFresh,
+    } = require('../core/self-upgrade.ts');
+    const { readRecentSelfUpgrades } = require('../core/audit/self-upgrade-audit.ts');
+
+    const cfg = loadConfig();
+    const mode = resolveSelfUpgradeMode(cfg);
+    if (mode === 'off') {
+      return {
+        name: 'self_upgrade_health',
+        status: 'ok',
+        message: 'Self-upgrade disabled (mode=off). Enable: gbrain config set self_upgrade.mode notify',
+      };
+    }
+
+    const parts: string[] = [`mode=${mode}`];
+    const entry = readUpdateCache();
+    if (entry && isCacheFresh(entry, Date.now()) && entry.marker.kind === 'upgrade_available') {
+      parts.push(`update available: ${entry.marker.current} -> ${entry.marker.latest} (run: gbrain self-upgrade)`);
+    }
+    const failedVersions: string[] = cfg?.self_upgrade?.failed_versions ?? [];
+    if (failedVersions.length > 0) {
+      parts.push(`skipping known-bad: ${failedVersions.join(', ')}`);
+    }
+
+    const recent = readRecentSelfUpgrades(7) as Array<{ outcome?: string; error?: string; latest?: string | null }>;
+    const failures = recent.filter((e) => e.outcome === 'failed');
+    if (failures.length > 0) {
+      const last = failures[failures.length - 1];
+      return {
+        name: 'self_upgrade_health',
+        status: 'warn',
+        message:
+          `${failures.length} self-upgrade failure(s) in 7d (${parts.join('; ')}). ` +
+          `Last: ${last.latest ?? '?'}${last.error ? ` — ${last.error}` : ''}. ` +
+          `Check ~/.gbrain/upgrade-errors.jsonl; apply manually with gbrain self-upgrade.`,
+      };
+    }
+
+    return { name: 'self_upgrade_health', status: 'ok', message: parts.join('; ') };
+  } catch (e) {
+    return {
+      name: 'self_upgrade_health',
+      status: 'ok',
+      message: `Self-upgrade status unavailable (${e instanceof Error ? e.message : String(e)})`,
+    };
+  }
 }
 
 // --- v0.36.1.0 calibration doctor checks (T12) ---
@@ -844,6 +919,96 @@ export async function checkContextualRetrievalCoverage(engine: BrainEngine): Pro
       name: 'contextual_retrieval_coverage',
       status: 'warn',
       message: `Could not check contextual retrieval coverage: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+}
+
+/**
+ * issue #1777 — hidden_by_search_policy
+ *
+ * Counts CHUNKED pages that are withheld from default search by the
+ * hard-exclude prefix policy (`test/`, `attachments/`, `.raw/`, plus any
+ * `GBRAIN_SEARCH_EXCLUDE` env additions). Makes the surviving exclude policy
+ * auditable so an empty search result is distinguishable from "withheld by
+ * policy" — the deeper bug the archive-demote fix only half-closes.
+ *
+ * HONEST SUPERSET: the count is "chunked pages under an excluded prefix", NOT
+ * "searchable pages". Keyword search additionally filters
+ * `search_vector @@ ... AND modality='text'` and vector search filters text
+ * modality + non-null embedding, so `EXISTS (content_chunks)` over-includes
+ * image-only / non-text pages. Tightening to the exact per-modality predicate
+ * would couple this check to search internals for a number nobody paginates on;
+ * the superset is the right operator signal. The message says "chunked page(s)".
+ *
+ * Status (CV-1a): pages hidden ONLY under DEFAULT excludes → `ok` (intentional
+ * noise; warning would make every healthy brain look unhealthy). Pages hidden
+ * under a NON-default (env-supplied) prefix → `warn`. The message is
+ * agent-prescriptive: move content out of the excluded prefix or pass
+ * `include_slug_prefixes` on the query.
+ *
+ * NOTE: this does NOT verify `archive/` pages are embedded/graphed — after the
+ * #1777 fix `archive/` is no longer excluded, so it never appears here.
+ */
+export async function checkHiddenBySearchPolicy(engine: BrainEngine): Promise<Check> {
+  const name = 'hidden_by_search_policy';
+  try {
+    const prefixes = resolveHardExcludes();
+    if (prefixes.length === 0) {
+      return { name, status: 'ok', message: 'No search-exclude prefixes active.' };
+    }
+
+    // ONE query: COUNT(DISTINCT p.id) per prefix in a single pass. Prefixes are
+    // bound params, LIKE-escaped (env-supplied prefixes may contain %/_/\) with
+    // an explicit ESCAPE clause. Candidate gate is EXISTS(content_chunks);
+    // buildVisibilityClause mirrors search's page-level visibility (soft-delete,
+    // archived source, quarantine) and REQUIRES the `sources s` join.
+    const visibility = buildVisibilityClause('p', 's');
+    const filters = prefixes
+      .map((_, i) => `COUNT(DISTINCT p.id) FILTER (WHERE p.slug LIKE $${i + 1} ESCAPE '\\')::int AS c${i}`)
+      .join(',\n         ');
+    const params = prefixes.map((pfx) => `${escapeLikePattern(pfx)}%`);
+    const sql =
+      `SELECT
+         ${filters}
+       FROM pages p
+       JOIN sources s ON s.id = p.source_id
+       WHERE EXISTS (SELECT 1 FROM content_chunks cc WHERE cc.page_id = p.id)
+         ${visibility}`;
+    const rows = await engine.executeRaw<Record<string, number>>(sql, params);
+    const row = rows[0] ?? {};
+
+    const defaults = new Set(DEFAULT_HARD_EXCLUDES);
+    const perPrefix = prefixes
+      .map((pfx, i) => ({ prefix: pfx, count: Number(row[`c${i}`] ?? 0), isDefault: defaults.has(pfx) }))
+      .filter((e) => e.count > 0);
+
+    if (perPrefix.length === 0) {
+      return {
+        name,
+        status: 'ok',
+        message: 'No pages hidden by search-exclude policy.',
+        details: { prefixes, counts: {} },
+      };
+    }
+
+    const counts: Record<string, number> = {};
+    for (const e of perPrefix) counts[e.prefix] = e.count;
+    const breakdown = perPrefix.map((e) => `${e.count} under '${e.prefix}'`).join(', ');
+    const hasNonDefault = perPrefix.some((e) => !e.isDefault);
+    const guidance =
+      'If any hold content you want findable, move them out of the excluded ' +
+      "prefix or pass `include_slug_prefixes` on the query.";
+    return {
+      name,
+      status: hasNonDefault ? 'warn' : 'ok',
+      message: `${breakdown} chunked page(s) are excluded from default search by prefix policy. ${guidance}`,
+      details: { prefixes, counts },
+    };
+  } catch (e) {
+    return {
+      name,
+      status: 'warn',
+      message: `Could not check hidden-by-search-policy: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
 }
@@ -6469,6 +6634,10 @@ export async function buildChecks(
   if (engine !== null) {
     progress.heartbeat('search_mode');
     checks.push(await checkSearchMode(engine));
+    // issue #1777 — hidden_by_search_policy: chunked pages withheld from default
+    // search by the hard-exclude prefix policy (audit the surviving excludes).
+    progress.heartbeat('hidden_by_search_policy');
+    checks.push(await checkHiddenBySearchPolicy(engine));
     progress.heartbeat('eval_drift');
     checks.push(await checkEvalDrift(engine));
     // v0.35.0.0+ reranker_health — read JSONL audit; warn on auth or volume.

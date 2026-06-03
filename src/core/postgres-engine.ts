@@ -1486,8 +1486,9 @@ export class PostgresEngine implements BrainEngine {
     // by multiplying the chunk-grain ts_rank with a source-factor CASE.
     // Detail-gated — disabled for `detail='high'` (temporal queries) so
     // chat surfaces normally for date-framed lookups. Hard-exclude prefixes
-    // (test/, archive/, attachments/, .raw/ by default) filter at the
-    // chunk-rank stage so they never enter the candidate set.
+    // (test/, attachments/, .raw/ by default) filter at the chunk-rank stage
+    // so they never enter the candidate set. (archive/ is demoted, not
+    // excluded — issue #1777.)
     const boostMap = resolveBoostMap();
     const sourceFactorCase = buildSourceFactorCase('p.slug', boostMap, opts?.detail);
     const hardExcludePrefixes = resolveHardExcludes(opts?.exclude_slug_prefixes, opts?.include_slug_prefixes);
