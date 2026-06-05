@@ -15,11 +15,15 @@ triggers:
   - "what is my current version of"
   - "show reversals in my thinking about"
   - "where did this idea come from"
+  - "changed my mind about"
 tools:
   - search
   - query
   - get_page
   - list_pages
+  - get_backlinks
+  - traverse_graph
+  - get_timeline
   - takes_search
   - find_contradictions
   - find_trajectory
@@ -98,8 +102,15 @@ Collect enough evidence to support or reject each output bucket:
 - Search chunks with dates and source slugs.
 - Full pages via `get_page` for the top relevant concept, note, transcript,
   meeting, article, or project pages.
-- Related concept pages through backlinks, `related` frontmatter, or repeated
-  co-occurrence in search results.
+- Related concepts via the link graph, not just prose: `get_backlinks` on the
+  resolved anchor surfaces what references the idea (inbound edges that often
+  mark abandoned branches and descendants); `traverse_graph` at **depth 2**
+  (keep it shallow — deeper fans out fast on a dense brain) surfaces nearby
+  concepts that shaped or inherited the idea. Fall back to `related`
+  frontmatter and repeated co-occurrence in search results.
+- Date anchors via `get_timeline` on the anchor page, so first-mention and
+  turning-point dates come from recorded timeline entries rather than being
+  inferred from chunk metadata alone.
 - Takes via `takes_search` when the idea appears as a belief, bet, hunch, or
   attributed claim.
 - Cached contradiction findings via `find_contradictions` when the user asks
@@ -188,9 +199,18 @@ cite the source for each non-gap claim.
   current view.
 - Treat holder-attributed takes as beliefs by that holder, not automatically
   as facts about the world or the brain owner.
-- Mark confidence low when evidence comes from a single weak snippet, an
-  undated page, or a fuzzy semantic match.
+- Score confidence on every non-gap claim with this rubric:
+  - **high** - multiple dated, high-authority sources agree (e.g. a concept
+    page plus a transcript plus a take, with consistent dates).
+  - **medium** - a single good dated source, or sources that agree but have
+    minor date gaps or one weak corroborator.
+  - **low** - a single weak or undated snippet, or a fuzzy semantic-only match
+    with no exact-phrase or graph corroboration.
 - Preserve source ids in citations when search or page payloads include them.
+- If a degraded retrieval signal is present (for example semantic search was
+  unavailable and only keyword matches were gathered), say so explicitly and
+  cap affected claims at **medium** confidence. Never silently present a
+  keyword-only result as if the full evidence set was searched.
 
 ## Anti-Patterns
 
@@ -217,6 +237,9 @@ cite the source for each non-gap claim.
 - `query` - semantic search for conceptual matches.
 - `get_page` - full context for candidate source pages.
 - `list_pages` - concept-page discovery and scoped page enumeration.
+- `get_backlinks` - inbound edges to the anchor (descendants, abandoned branches).
+- `traverse_graph` - nearby concepts at depth 2 that shaped or inherited the idea.
+- `get_timeline` - recorded timeline entries for first-mention / turning-point dates.
 - `takes_search` - holder-attributed beliefs, bets, hunches, and facts.
 - `find_contradictions` - cached contradiction findings when relevant.
 - `find_trajectory` - optional structured entity trajectory side-channel.
