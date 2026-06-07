@@ -2,6 +2,29 @@
 
 All notable changes to GBrain will be documented in this file.
 
+## [0.42.29.0] - 2026-06-07
+
+**The background-job queue stops thrashing on long jobs, the cycle stops wedging itself, and you can no longer run two supervisors against one queue by accident.** Three fixes plus a voice-agent feature.
+
+The biggest one: a `gbrain dream` / autopilot cycle whose embed phase ran long (a big stale-page backlog) would hit the job's wall-clock timeout, get dead-lettered, **and keep running anyway** — its embed loop never checked for cancellation, so the cycle's cleanup never ran and the `gbrain_cycle_locks` row stayed held. Every later cycle then skipped with "cycle already running" until the zombie finished 10-15 minutes later. The embed phase now honors the cancellation signal on both the `--stale` and `--all` paths and bails within a batch, so the lock is released right away.
+
+Long-running jobs also accounted for their attempts honestly now. A job killed by the wall-clock timeout (or repeatedly reclaimed after lease loss) used to show `Attempts: 0/2 (started: 3)` — started three times, zero attempts recorded — which read like broken math. `gbrain jobs get` now increments the attempt on those terminal paths and surfaces the stall counter, so you see `started 3 / stalled 2 / attempts 1 / killed: wall-clock` and it actually adds up. Long handlers (`subagent`, `embed-backfill`, `autopilot-cycle`) also get a sane default wall-clock budget when one isn't set explicitly, so they aren't killed mid-progress by the short default.
+
+The supervisor singleton was only enforced per pidfile path, so two supervisors launched with different `HOME` or `--pid-file` could both run against the same queue with conflicting `--max-rss` caps — and the lower cap silently killed healthy work. The real authority is now a queue-scoped DB lock keyed on the database identity: a second supervisor on the same `(database, queue)` exits immediately, regardless of pidfile path. If the lock can't be refreshed, the supervisor exits cleanly rather than risk a split. `gbrain doctor` now reports the effective `--max-rss` and flags a mismatch between the pidfile owner and the lock holder.
+
+For the voice agent recipe, you can now summon a persona into a specific topic so it boots already knowing the recent conversation, instead of starting cold.
+
+### Added
+- **Topic-aware voice personas** (`recipes/agent-voice/`): a call link can carry a `topicId` (e.g. `/call?persona=mars&topicId=q3-planning`) and the persona boots with that topic's recent conversation already in context. Only the `topicId` crosses the wire — the server resolves the conversation from the brain, so topic content never lands in a URL — and the id is a strict slug with a path-traversal guard. No `topicId` falls back to the generic per-persona context.
+
+### Fixed
+- **Long minion jobs no longer thrash or wedge the cycle (#1737).** The embed phase honors cancellation on both embed paths so a timed-out cycle releases its lock immediately; wall-clock and stall dead-letters record the attempt and surface the stall counter; long handlers get a default wall-clock budget.
+- **One supervisor per queue, enforced at the database (#1849).** A queue-scoped DB lock replaces the pidfile-only guard, so two supervisors can't fight over one queue with conflicting memory caps; `gbrain doctor` surfaces the effective cap and any owner mismatch.
+
+### To take advantage of v0.42.29.0
+
+Upgrade and restart your worker/supervisor. Nothing to configure. If `gbrain doctor` flags a supervisor singleton mismatch, stop the extra supervisor (`gbrain jobs supervisor stop`) and keep one per queue.
+
 ## [0.42.26.0] - 2026-06-04
 
 **The Supabase setup docs now match the current dashboard and call out the one thing that actually breaks on IPv4 hosts.** The connection-string instructions were written for the old Supabase UI (two options under Project Settings) and used inconsistent pooler names: some docs said "Connection pooler," others mislabeled port 6543 as the "Session pooler," and a few carried a stale warning to avoid the transaction pooler entirely. The current Supabase UI puts the string under **Connect** in the top navigation with three options (Direct, Transaction pooler, Session pooler). gbrain is tuned for the **Transaction pooler** (port 6543): it disables prepared statements there and routes migrations, DDL, and worker locks to a separate direct connection. This release makes every setup surface say that, consistently.
