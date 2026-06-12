@@ -3742,8 +3742,26 @@ export class PostgresEngine implements BrainEngine {
     return { inserted: ids.length, ids };
   }
 
-  async deleteFactsForPage(slug: string, source_id: string): Promise<{ deleted: number }> {
+  async deleteFactsForPage(
+    slug: string,
+    source_id: string,
+    opts?: { excludeSourcePrefixes?: string[] },
+  ): Promise<{ deleted: number }> {
     const sql = this.sql;
+    const prefixes = opts?.excludeSourcePrefixes;
+    if (prefixes && prefixes.length > 0) {
+      // #1928: keep rows whose `source` matches an excluded prefix (e.g.
+      // `cli:` conversation facts). COALESCE so NULL/empty-source fence rows
+      // stay deletable — only the explicitly-protected prefixes survive.
+      const patterns = prefixes.map(p => `${p}%`);
+      const result = await sql`
+        DELETE FROM facts
+        WHERE source_id = ${source_id}
+          AND source_markdown_slug = ${slug}
+          AND NOT (COALESCE(source, '') LIKE ANY(${patterns}))
+      `;
+      return { deleted: result.count ?? 0 };
+    }
     const result = await sql`
       DELETE FROM facts WHERE source_id = ${source_id} AND source_markdown_slug = ${slug}
     `;

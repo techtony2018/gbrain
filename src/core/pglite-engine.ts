@@ -199,6 +199,9 @@ export class PGLiteEngine implements BrainEngine {
   readonly kind = 'pglite' as const;
   private _db: PGLiteDB | null = null;
   private _lock: LockHandle | null = null;
+  // #2034: captured at connect() so reconnect() can restore the same data dir
+  // after a drop, matching PostgresEngine's _savedConfig contract.
+  private _savedConfig: EngineConfig | null = null;
   // Tier 3: when GBRAIN_PGLITE_SNAPSHOT loaded a post-initSchema state into
   // PGlite.create(loadDataDir), initSchema is a no-op (schema is already
   // present + migrations already applied). Saves ~1-3s per fresh test PGLite.
@@ -211,6 +214,7 @@ export class PGLiteEngine implements BrainEngine {
 
   // Lifecycle
   async connect(config: EngineConfig): Promise<void> {
+    this._savedConfig = config; // #2034: remember for reconnect()
     const dataDir = config.database_path || undefined; // undefined = in-memory
 
     // Acquire file lock to prevent concurrent PGLite access (crashes with Aborted())
@@ -286,6 +290,21 @@ export class PGLiteEngine implements BrainEngine {
         await releaseLock(lock);
       }
     }
+  }
+
+  /**
+   * #2034: engine-parity reconnect. PGLite is single-writer in-process so it
+   * doesn't suffer the pool-drop class PostgresEngine.reconnect() handles, but
+   * the method MUST exist so callers (autopilot health probe) can use
+   * `engine.reconnect()` uniformly instead of `disconnect()` + bare `connect()`
+   * (which would throw on the lost config). Tears the handle down and
+   * re-opens against the config captured at the last connect().
+   */
+  async reconnect(_ctx?: { error?: unknown }): Promise<void> {
+    if (!this._savedConfig) return; // never connected — nothing to restore
+    const config = this._savedConfig;
+    await this.disconnect();
+    await this.connect(config);
   }
 
   async initSchema(): Promise<void> {
@@ -3596,7 +3615,25 @@ export class PGLiteEngine implements BrainEngine {
     return { inserted: ids.length, ids };
   }
 
-  async deleteFactsForPage(slug: string, source_id: string): Promise<{ deleted: number }> {
+  async deleteFactsForPage(
+    slug: string,
+    source_id: string,
+    opts?: { excludeSourcePrefixes?: string[] },
+  ): Promise<{ deleted: number }> {
+    const prefixes = opts?.excludeSourcePrefixes;
+    if (prefixes && prefixes.length > 0) {
+      // #1928: keep rows whose `source` matches an excluded prefix (e.g.
+      // `cli:` conversation facts). COALESCE so NULL/empty-source fence rows
+      // stay deletable — only the explicitly-protected prefixes survive.
+      const patterns = prefixes.map(p => `${p}%`);
+      const result = await this.db.query(
+        `DELETE FROM facts
+           WHERE source_id = $1 AND source_markdown_slug = $2
+             AND NOT (COALESCE(source, '') LIKE ANY($3::text[]))`,
+        [source_id, slug, patterns],
+      );
+      return { deleted: result.affectedRows ?? 0 };
+    }
     const result = await this.db.query(
       `DELETE FROM facts WHERE source_id = $1 AND source_markdown_slug = $2`,
       [source_id, slug],
