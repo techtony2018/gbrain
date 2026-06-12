@@ -1,4 +1,5 @@
 import type { BrainEngine } from '../core/engine.ts';
+import { setCliExitVerdict } from '../core/cli-force-exit.ts';
 import * as db from '../core/db.ts';
 import { LATEST_VERSION, getIdleBlockers } from '../core/migrate.ts';
 import { checkResolvable } from '../core/check-resolvable.ts';
@@ -7228,7 +7229,7 @@ export async function runDoctor(
   // Use process.exitCode instead of process.exit() so cleanup handlers
   // (e.g. Bun unload events, open database connections) still run before
   // the process terminates. process.exit() is a hard kill that bypasses them.
-  process.exitCode = hasFail ? 1 : 0;
+  setCliExitVerdict(hasFail ? 1 : 0);
 }
 
 // ---------------------------------------------------------------------------
