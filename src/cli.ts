@@ -284,6 +284,17 @@ async function main() {
     }
   }
 
+  // DB-free durability pull (v0.42.44 D2): the harden cron calls
+  // `gbrain sources pull --path <dir>` every ~30 min. It must NOT open PGLite
+  // (a live long-lived session holds the single-writer lock), so handle it
+  // BEFORE connectEngine. The `sources pull <id>` form (no --path) still routes
+  // through handleCliOnly → runSources with an engine.
+  if (command === 'sources' && subArgs[0] === 'pull' && subArgs.includes('--path')) {
+    const { runPull } = await import('./commands/sources-harden.ts');
+    await runPull(null, subArgs.slice(1));
+    return;
+  }
+
   // CLI-only commands
   if (CLI_ONLY.has(command)) {
     await handleCliOnly(command, subArgs);

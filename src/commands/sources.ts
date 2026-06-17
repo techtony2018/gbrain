@@ -129,6 +129,8 @@ async function runAdd(engine: BrainEngine, args: string[]): Promise<void> {
   let displayName: string | undefined;
   let federated: boolean | null = null;
   let cloneDir: string | undefined;
+  let patFile: string | undefined;
+  let noHarden = false;
 
   for (let i = 1; i < args.length; i++) {
     const a = args[i];
@@ -138,6 +140,8 @@ async function runAdd(engine: BrainEngine, args: string[]): Promise<void> {
     if (a === '--federated') { federated = true; continue; }
     if (a === '--no-federated') { federated = false; continue; }
     if (a === '--clone-dir') { cloneDir = args[++i]; continue; }
+    if (a === '--pat-file') { patFile = args[++i]; continue; }
+    if (a === '--no-harden') { noHarden = true; continue; }
     console.error(`Unknown flag: ${a}`);
     process.exit(2);
   }
@@ -175,6 +179,36 @@ async function runAdd(engine: BrainEngine, args: string[]): Promise<void> {
   console.log(
     `  federated: ${fed}${fed ? ' — appears in cross-source default search' : ' — only searched when explicitly named via --source'}`,
   );
+
+  // v0.42.44 — auto-harden managed clones for git durability the moment a brain
+  // repo is added with a PAT. Best-effort: NEVER fail `add` if hardening fails.
+  // Only managed clones (gbrain owns the working tree); --path repos are unowned.
+  if (finalRemoteUrl && created.local_path && !noHarden) {
+    try {
+      const { hardenBrainRepo, acceptPat } = await import('../core/brain-repo-durability.ts');
+      const pat = acceptPat({ patFile });
+      for (const w of pat?.warnings ?? []) console.error(`[gbrain] ${w}`);
+      if (!pat) {
+        console.error('[gbrain] No PAT provided (--pat-file or GBRAIN_GITHUB_PAT) — skipping durability hardening.');
+        console.error(`         Run \`gbrain sources harden ${id} --pat-file <p>\` later to enable auto-push.`);
+      } else {
+        console.error('[gbrain] Hardening brain repo for durability…');
+        const report = await hardenBrainRepo({
+          repoPath: created.local_path, sourceId: id, pat: pat.token,
+          logger: (l) => console.error(`  ${l}`),
+        });
+        if (report.needs_attention.length) {
+          console.error('[gbrain] Durability hardened with warnings:');
+          for (const n of report.needs_attention) console.error(`  - ${n}`);
+        } else {
+          console.error('[gbrain] Durability hardened ✓');
+        }
+      }
+    } catch (e) {
+      console.error(`[gbrain] Durability hardening skipped (non-fatal): ${(e as Error).message}`);
+      console.error(`         Run \`gbrain sources harden ${id}\` to retry.`);
+    }
+  }
 }
 
 // ── Subcommand: list ────────────────────────────────────────
@@ -264,6 +298,16 @@ async function runRemove(engine: BrainEngine, args: string[]): Promise<void> {
       console.error('Refusing to remove without --yes or --confirm-destructive.');
       process.exit(5);
     }
+  }
+
+  // v0.42.44 — tear down durability scaffolding BEFORE the row is deleted (we
+  // need the path/label while it still exists). Best-effort; tolerates missing
+  // repo/cron/credential independently.
+  try {
+    const { unhardenBrainRepo } = await import('../core/brain-repo-durability.ts');
+    await unhardenBrainRepo({ repoPath: src.local_path ?? '', sourceId: id, logger: (l) => console.error(l) });
+  } catch (e) {
+    console.error(`[gbrain] durability teardown skipped (non-fatal): ${(e as Error).message}`);
   }
 
   await engine.executeRaw(`DELETE FROM sources WHERE id = $1`, [id]);
@@ -1165,6 +1209,10 @@ export async function runSources(engine: BrainEngine, args: string[]): Promise<v
     // v0.40.3.0 contextual retrieval (from master)
     case 'set-cr-mode': return runSetCrMode(engine, rest);
     case 'audit':      return runAudit(engine, rest);
+    // v0.42.44 brain-repo git durability
+    case 'harden':     { const { runHarden } = await import('./sources-harden.ts'); return runHarden(engine, rest); }
+    case 'pull':       { const { runPull } = await import('./sources-harden.ts'); return runPull(engine, rest); }
+    case 'unharden':   { const { runUnharden } = await import('./sources-harden.ts'); return runUnharden(engine, rest); }
     case undefined:
     case '--help':
     case '-h':
@@ -1216,6 +1264,15 @@ Subcommands:
                                     override (v0.40.3.0). Pass "unset" or
                                     "default" to clear (NULL falls through
                                     to the global search.mode bundle).
+  harden <id|--all> [--pat-file <p>] [--branch <b>] [--no-cron] [--no-verify] [--dry-run] [--json]
+                                    v0.42.44 — make a brain repo durable: local
+                                    auto-push hook, committed commit-push helper,
+                                    always-on agent rules, 30-min pull cron, and
+                                    repo-scoped credential. Idempotent.
+  pull <id> | --path <dir> [--branch <b>]
+                                    Divergence-safe rebase-pull (skip-on-dirty).
+                                    --path is DB-free (the harden cron's entry).
+  unharden <id>                     Remove durability cron/hook/credential wiring.
 
 Source id: [a-z0-9-]{1,32}. Immutable citation key.
 
