@@ -101,12 +101,26 @@ export function resolveWorkerConcurrency(args: string[], env: NodeJS.ProcessEnv 
 }
 
 function formatJob(job: MinionJob): string {
-  const dur = job.finished_at && job.started_at
-    ? `${((job.finished_at.getTime() - job.started_at.getTime()) / 1000).toFixed(1)}s`
+  const finishedAt = asDate(job.finished_at);
+  const startedAt = asDate(job.started_at);
+  const lockUntil = asDate(job.lock_until);
+  const dur = finishedAt && startedAt
+    ? `${((finishedAt.getTime() - startedAt.getTime()) / 1000).toFixed(1)}s`
     : '—';
-  const stalled = job.status === 'active' && job.lock_until && job.lock_until < new Date()
+  const stalled = job.status === 'active' && lockUntil && lockUntil < new Date()
     ? ' (stalled?)' : '';
-  return `  ${String(job.id).padEnd(6)} ${job.name.padEnd(14)} ${(job.status + stalled).padEnd(20)} ${job.queue.padEnd(10)} ${dur.padEnd(8)} ${job.created_at.toISOString().slice(0, 19)}`;
+  return `  ${String(job.id).padEnd(6)} ${job.name.padEnd(14)} ${(job.status + stalled).padEnd(20)} ${job.queue.padEnd(10)} ${dur.padEnd(8)} ${formatIso(job.created_at).slice(0, 19)}`;
+}
+
+function asDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  const date = new Date(value as string);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatIso(value: unknown): string {
+  return asDate(value)?.toISOString() ?? 'unknown';
 }
 
 function formatJobDetail(job: MinionJob): string {
@@ -116,10 +130,10 @@ function formatJobDetail(job: MinionJob): string {
     `  Attempts: ${job.attempts_made}/${job.max_attempts} (started: ${job.attempts_started}, stalled: ${job.stalled_counter}/${job.max_stalled})`,
     `  Backoff: ${job.backoff_type} ${job.backoff_delay}ms (jitter: ${job.backoff_jitter})`,
   ];
-  if (job.started_at) lines.push(`  Started: ${job.started_at.toISOString()}`);
-  if (job.finished_at) lines.push(`  Finished: ${job.finished_at.toISOString()}`);
-  if (job.lock_token) lines.push(`  Lock: ${job.lock_token} (until ${job.lock_until?.toISOString()})`);
-  if (job.delay_until) lines.push(`  Delayed until: ${job.delay_until.toISOString()}`);
+  if (job.started_at) lines.push(`  Started: ${formatIso(job.started_at)}`);
+  if (job.finished_at) lines.push(`  Finished: ${formatIso(job.finished_at)}`);
+  if (job.lock_token) lines.push(`  Lock: ${job.lock_token} (until ${job.lock_until ? formatIso(job.lock_until) : 'unknown'})`);
+  if (job.delay_until) lines.push(`  Delayed until: ${formatIso(job.delay_until)}`);
   if (job.parent_job_id) lines.push(`  Parent: job #${job.parent_job_id} (on_child_fail: ${job.on_child_fail})`);
   if (job.error_text) lines.push(`  Error: ${job.error_text}`);
   if (job.stacktrace.length > 0) {
@@ -147,7 +161,7 @@ USAGE
                             [--idempotency-key K] [--queue Q] [--dry-run]
                             [--redact-secrets]   (shell only; scrubs inherit
                                                   values from stdout/stderr)
-  gbrain jobs list [--status S] [--queue Q] [--limit N]
+  gbrain jobs list [--status S] [--queue Q] [--name NAME] [--limit N]
   gbrain jobs get <id>
   gbrain jobs cancel <id>
   gbrain jobs retry <id>
@@ -424,6 +438,7 @@ HANDLER TYPES (built in)
     case 'list': {
       const status = parseFlag(args, '--status') as MinionJobStatus | undefined;
       const queueName = parseFlag(args, '--queue');
+      const name = parseFlag(args, '--name');
       const limit = parseInt(parseFlag(args, '--limit') ?? '20', 10);
 
       // v0.32: thin-client routing. The `list_jobs` MCP op is admin-scoped
@@ -435,13 +450,13 @@ HANDLER TYPES (built in)
       let jobs: MinionJob[];
       if (isThinClient(cfg)) {
         const raw = await callRemoteTool(cfg!, 'list_jobs', {
-          status, queue: queueName, limit,
+          status, queue: queueName, name, limit,
         }, { timeoutMs: 30_000 });
         jobs = unpackToolResult<MinionJob[]>(raw);
       } else {
         try { await queue.ensureSchema(); }
         catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1); }
-        jobs = await queue.getJobs({ status, queue: queueName, limit });
+        jobs = await queue.getJobs({ status, queue: queueName, name, limit });
       }
 
       if (jobs.length === 0) {
