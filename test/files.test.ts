@@ -4,7 +4,7 @@ import { join, basename } from 'path';
 import { createHash } from 'crypto';
 import { extname } from 'path';
 import { tmpdir } from 'os';
-import { collectFiles } from '../src/commands/files.ts';
+import { cacheFilePath, collectFiles, parseDeleteFileArgs } from '../src/commands/files.ts';
 
 const TMP = join(import.meta.dir, '.tmp-files-test');
 
@@ -195,5 +195,46 @@ describe('collectFiles (production import)', () => {
     } finally {
       rmSync(tmpDir, { recursive: true });
     }
+  });
+});
+
+describe('files delete argument parsing', () => {
+  test('accepts a storage path with --yes', () => {
+    const opts = parseDeleteFileArgs(['posts/x/file.jpg', '--yes']);
+    expect(opts.storagePath).toBe('posts/x/file.jpg');
+    expect(opts.yes).toBe(true);
+    expect(opts.dryRun).toBe(false);
+  });
+
+  test('normalizes gbrain file references and /media paths', () => {
+    expect(parseDeleteFileArgs(['gbrain:files/posts/x/file.jpg', '--dry-run']).storagePath).toBe('posts/x/file.jpg');
+    expect(parseDeleteFileArgs(['/media/posts/x/file.jpg', '--dry-run']).storagePath).toBe('posts/x/file.jpg');
+  });
+
+  test('accepts page plus filename form', () => {
+    const opts = parseDeleteFileArgs(['--page', 'posts/x', '--filename', 'file.jpg', '--all-matching-hash', '--dry-run']);
+    expect(opts.pageSlug).toBe('posts/x');
+    expect(opts.filename).toBe('file.jpg');
+    expect(opts.allMatchingHash).toBe(true);
+    expect(opts.dryRun).toBe(true);
+  });
+
+  test('rejects ambiguous storage path plus page form', () => {
+    expect(() => parseDeleteFileArgs(['posts/x/file.jpg', '--page', 'posts/x', '--filename', 'file.jpg'])).toThrow('Use either');
+  });
+
+  test('requires either storage path or page plus filename', () => {
+    expect(() => parseDeleteFileArgs(['--page', 'posts/x'])).toThrow('Usage: gbrain files delete');
+  });
+});
+
+describe('files delete cache path containment', () => {
+  test('builds contained cache paths', () => {
+    const path = cacheFilePath('/tmp/cache-root', 'posts/x/file.jpg');
+    expect(path).toBe('/tmp/cache-root/posts/x/file.jpg');
+  });
+
+  test('blocks cache path traversal', () => {
+    expect(cacheFilePath('/tmp/cache-root', '../../etc/passwd')).toBeNull();
   });
 });

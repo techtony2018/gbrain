@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync, lstatSync, existsSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
-import { join, relative, extname, basename, dirname } from 'path';
+import { join, relative, extname, basename, dirname, resolve } from 'path';
 import { createHash } from 'crypto';
 import type { BrainEngine } from '../core/engine.ts';
 import { sqlQueryForEngine, executeRawJsonb } from '../core/sql-query.ts';
@@ -58,6 +58,9 @@ export async function runFiles(engine: BrainEngine, args: string[]) {
     case 'upload':
       await uploadFile(engine, args.slice(1));
       break;
+    case 'delete':
+      await deleteFiles(engine, args.slice(1));
+      break;
     case 'sync':
       await syncFiles(engine, args[1]);
       break;
@@ -92,6 +95,8 @@ export async function runFiles(engine: BrainEngine, args: string[]) {
       console.error(`Usage: gbrain files <command> [args]`);
       console.error(`  list [slug]               List files for a page (or all)`);
       console.error(`  upload <file> --page <slug>  Upload file linked to page`);
+      console.error(`  delete <storage-path> --yes  Delete a stored file record and backing object`);
+      console.error(`  delete --page <slug> --filename <name> --yes  Delete a stored file by page + filename`);
       console.error(`  upload-raw <file> --page <slug> [--type <type>]  Smart upload with .redirect.yaml pointer`);
       console.error(`  signed-url <path>         Generate signed URL for stored file`);
       console.error(`  sync <dir>                Upload directory to storage`);
@@ -104,6 +109,210 @@ export async function runFiles(engine: BrainEngine, args: string[]) {
       console.error(`  status                    Show migration status of directories`);
       process.exit(1);
   }
+}
+
+interface DeleteFilesOptions {
+  storagePath: string | null;
+  pageSlug: string | null;
+  filename: string | null;
+  dryRun: boolean;
+  yes: boolean;
+  allMatchingHash: boolean;
+  keepStorage: boolean;
+  cacheRoots: string[];
+}
+
+function normalizeStoragePath(value: string): string {
+  let text = String(value || '').trim();
+  if (text.startsWith('gbrain:files/')) text = text.slice('gbrain:files/'.length);
+  if (text.startsWith('/media/')) text = text.slice('/media/'.length);
+  return text.replace(/^\/+/, '');
+}
+
+export function parseDeleteFileArgs(args: string[]): DeleteFilesOptions {
+  const opts: DeleteFilesOptions = {
+    storagePath: null,
+    pageSlug: null,
+    filename: null,
+    dryRun: false,
+    yes: false,
+    allMatchingHash: false,
+    keepStorage: false,
+    cacheRoots: [],
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--dry-run') opts.dryRun = true;
+    else if (arg === '--yes') opts.yes = true;
+    else if (arg === '--all-matching-hash') opts.allMatchingHash = true;
+    else if (arg === '--keep-storage') opts.keepStorage = true;
+    else if (arg === '--page') opts.pageSlug = args[++i] || null;
+    else if (arg === '--filename') opts.filename = args[++i] || null;
+    else if (arg === '--cache-root') {
+      const root = args[++i];
+      if (root) opts.cacheRoots.push(root);
+    } else if (!arg.startsWith('--') && !opts.storagePath) {
+      opts.storagePath = normalizeStoragePath(arg);
+    } else {
+      throw new Error(`Unknown files delete argument: ${arg}`);
+    }
+  }
+
+  const envCacheRoots = String(process.env.GBRAIN_FILE_CACHE_ROOTS || '')
+    .split(',')
+    .map(root => root.trim())
+    .filter(Boolean);
+  opts.cacheRoots.push(...envCacheRoots);
+
+  if (opts.storagePath && (opts.pageSlug || opts.filename)) {
+    throw new Error('Use either <storage-path> or --page/--filename, not both.');
+  }
+  if (!opts.storagePath && (!opts.pageSlug || !opts.filename)) {
+    throw new Error('Usage: gbrain files delete <storage-path> --yes OR gbrain files delete --page <slug> --filename <name> --yes');
+  }
+  if (opts.storagePath && !opts.storagePath.includes('/')) {
+    throw new Error('Storage path must include a page/path prefix, e.g. posts/x/file.jpg');
+  }
+  return opts;
+}
+
+export function cacheFilePath(cacheRoot: string, storagePath: string): string | null {
+  const root = resolve(cacheRoot);
+  const candidate = resolve(root, normalizeStoragePath(storagePath));
+  if (candidate !== root && !candidate.startsWith(root + '/')) return null;
+  return candidate;
+}
+
+function printFilesDeleteUsage() {
+  console.error('Usage:');
+  console.error('  gbrain files delete <storage-path> --yes [--dry-run] [--all-matching-hash] [--cache-root <dir>]');
+  console.error('  gbrain files delete --page <slug> --filename <name> --yes [--dry-run] [--all-matching-hash] [--cache-root <dir>]');
+  console.error('Options:');
+  console.error('  --dry-run             Show matching records without deleting.');
+  console.error('  --yes                 Required for actual deletion.');
+  console.error('  --all-matching-hash   Also delete records on the same page with the same content_hash.');
+  console.error('  --keep-storage        Delete DB rows only; keep backing storage objects.');
+  console.error('  --cache-root <dir>    Also remove matching cache files under this local media root. Repeatable.');
+  console.error('Env:');
+  console.error('  GBRAIN_FILE_CACHE_ROOTS=/path/a,/path/b adds cache roots for deletion.');
+}
+
+async function deleteFiles(engine: BrainEngine, args: string[]) {
+  let opts: DeleteFilesOptions;
+  try {
+    opts = parseDeleteFileArgs(args);
+  } catch (err) {
+    console.error((err as Error).message);
+    printFilesDeleteUsage();
+    process.exit(1);
+  }
+
+  const sql = sqlQueryForEngine(engine);
+  let rows: Record<string, unknown>[];
+  if (opts.storagePath) {
+    rows = await sql`
+      SELECT id, page_slug, filename, storage_path, mime_type, size_bytes, content_hash
+      FROM files
+      WHERE storage_path = ${opts.storagePath}
+      ORDER BY filename
+    `;
+  } else {
+    rows = await sql`
+      SELECT id, page_slug, filename, storage_path, mime_type, size_bytes, content_hash
+      FROM files
+      WHERE page_slug = ${opts.pageSlug}
+        AND filename = ${opts.filename}
+      ORDER BY filename
+    `;
+  }
+
+  if (rows.length === 0) {
+    console.log('No matching files.');
+    return;
+  }
+
+  if (opts.allMatchingHash) {
+    const byId = new Map(rows.map(row => [String(row.id), row]));
+    for (const row of rows) {
+      const pageSlug = row.page_slug as string | null;
+      const contentHash = row.content_hash as string | null;
+      if (!pageSlug || !contentHash) continue;
+      const matches = await sql`
+        SELECT id, page_slug, filename, storage_path, mime_type, size_bytes, content_hash
+        FROM files
+        WHERE page_slug = ${pageSlug}
+          AND content_hash = ${contentHash}
+        ORDER BY filename
+      `;
+      for (const match of matches) byId.set(String(match.id), match);
+    }
+    rows = [...byId.values()].sort((a, b) => String(a.filename).localeCompare(String(b.filename)));
+  }
+
+  console.log(`${rows.length} matching file record(s):`);
+  for (const row of rows) {
+    const size = formatFileSizeKb(row.size_bytes as FileRecord['size_bytes']);
+    console.log(`  ${row.page_slug || '(unlinked)'} / ${row.filename}  [${size}, ${row.mime_type || '?'}]`);
+    console.log(`    storage_path: ${row.storage_path}`);
+  }
+
+  if (opts.dryRun) {
+    console.log('Dry run only; no files deleted.');
+    return;
+  }
+  if (!opts.yes) {
+    console.error('Refusing to delete without --yes. Re-run with --dry-run to inspect or --yes to delete.');
+    process.exit(1);
+  }
+
+  const { loadConfig } = await import('../core/config.ts');
+  const config = loadConfig();
+  let storageDeleted = 0;
+  let storageErrors = 0;
+  if (config?.storage && !opts.keepStorage) {
+    const { createStorage } = await import('../core/storage.ts');
+    const storage = await createStorage(config.storage as any);
+    for (const row of rows) {
+      try {
+        await storage.delete(String(row.storage_path));
+        storageDeleted++;
+      } catch (err) {
+        storageErrors++;
+        console.error(`Storage delete failed for ${row.storage_path}: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  if (storageErrors > 0) {
+    console.error('Aborting DB row deletion because one or more storage deletes failed.');
+    process.exit(1);
+  }
+
+  let dbDeleted = 0;
+  for (const row of rows) {
+    const deleted = await sql`DELETE FROM files WHERE id = ${row.id as number} RETURNING id`;
+    dbDeleted += deleted.length;
+  }
+
+  let cacheDeleted = 0;
+  for (const root of opts.cacheRoots) {
+    for (const row of rows) {
+      const cachePath = cacheFilePath(root, String(row.storage_path));
+      if (!cachePath) {
+        console.error(`Skipping unsafe cache path under ${root}: ${row.storage_path}`);
+        continue;
+      }
+      if (existsSync(cachePath)) {
+        unlinkSync(cachePath);
+        cacheDeleted++;
+      }
+    }
+  }
+
+  console.log(`Deleted ${dbDeleted} file record(s).`);
+  if (config?.storage && !opts.keepStorage) console.log(`Deleted ${storageDeleted} storage object(s).${storageErrors ? ` ${storageErrors} storage delete error(s).` : ''}`);
+  if (opts.cacheRoots.length > 0) console.log(`Deleted ${cacheDeleted} cache file(s).`);
 }
 
 async function listFiles(engine: BrainEngine, slug?: string) {

@@ -3,7 +3,7 @@
  * Each operation defines its schema, handler, and optional CLI hints.
  */
 
-import { lstatSync, realpathSync } from 'fs';
+import { existsSync, lstatSync, realpathSync, unlinkSync } from 'fs';
 import { resolve, relative, sep } from 'path';
 import type { BrainEngine } from './engine.ts';
 import { clampSearchLimit } from './engine.ts';
@@ -2796,6 +2796,130 @@ const file_url: Operation = {
   },
 };
 
+const files_delete: Operation = {
+  name: 'files_delete',
+  description: 'Delete stored file records and backing storage objects. Admin scope; remote-safe because deletion is resolved and executed on the GBrain host.',
+  params: {
+    storage_path: { type: 'string', description: 'Stored file path, gbrain:files/... reference, or /media/... path' },
+    page_slug: { type: 'string', description: 'Page slug for page+filename deletion' },
+    filename: { type: 'string', description: 'Filename for page+filename deletion' },
+    dry_run: { type: 'boolean', description: 'List matching records without deleting' },
+    yes: { type: 'boolean', description: 'Required for actual deletion' },
+    all_matching_hash: { type: 'boolean', description: 'Also delete same-page records with identical content_hash' },
+    keep_storage: { type: 'boolean', description: 'Delete DB rows only; keep backing storage objects' },
+    cache_root: { type: 'string', description: 'Optional media cache root to clean on the host' },
+    cache_roots: { type: 'array', description: 'Optional media cache roots to clean on the host' },
+  },
+  mutating: true,
+  scope: 'admin',
+  localOnly: false,
+  handler: async (ctx, p) => {
+    const normalize = (value: string): string => {
+      let text = String(value || '').trim();
+      if (text.startsWith('gbrain:files/')) text = text.slice('gbrain:files/'.length);
+      if (text.startsWith('/media/')) text = text.slice('/media/'.length);
+      return text.replace(/^\/+/, '');
+    };
+    const storagePath = typeof p.storage_path === 'string' ? normalize(p.storage_path) : '';
+    const pageSlug = typeof p.page_slug === 'string' ? p.page_slug : '';
+    const filename = typeof p.filename === 'string' ? p.filename : '';
+    if (storagePath && (pageSlug || filename)) {
+      throw new OperationError('invalid_params', 'Use either storage_path or page_slug+filename, not both.');
+    }
+    if (!storagePath && (!pageSlug || !filename)) {
+      throw new OperationError('invalid_params', 'Pass storage_path or both page_slug and filename.');
+    }
+    if (storagePath && !storagePath.includes('/')) {
+      throw new OperationError('invalid_params', 'storage_path must include a page/path prefix.');
+    }
+
+    const sql = db.getConnection();
+    let rows: any[];
+    if (storagePath) {
+      rows = await sql`SELECT id, page_slug, filename, storage_path, mime_type, size_bytes, content_hash FROM files WHERE storage_path = ${storagePath} ORDER BY filename`;
+    } else {
+      rows = await sql`SELECT id, page_slug, filename, storage_path, mime_type, size_bytes, content_hash FROM files WHERE page_slug = ${pageSlug} AND filename = ${filename} ORDER BY filename`;
+    }
+    if (rows.length === 0) return { status: 'not_found', matched: 0, rows: [] };
+
+    if (p.all_matching_hash === true) {
+      const byId = new Map(rows.map(row => [String(row.id), row]));
+      for (const row of rows) {
+        if (!row.page_slug || !row.content_hash) continue;
+        const matches = await sql`SELECT id, page_slug, filename, storage_path, mime_type, size_bytes, content_hash FROM files WHERE page_slug = ${row.page_slug} AND content_hash = ${row.content_hash} ORDER BY filename`;
+        for (const match of matches) byId.set(String(match.id), match);
+      }
+      rows = [...byId.values()].sort((a, b) => String(a.filename).localeCompare(String(b.filename)));
+    }
+
+    const summaryRows = rows.map(row => ({
+      id: Number(row.id),
+      page_slug: row.page_slug,
+      filename: row.filename,
+      storage_path: row.storage_path,
+      mime_type: row.mime_type,
+      size_bytes: row.size_bytes == null ? null : Number(row.size_bytes),
+      content_hash: row.content_hash,
+    }));
+
+    if (p.dry_run === true) return { dry_run: true, matched: rows.length, rows: summaryRows };
+    if (p.yes !== true) {
+      throw new OperationError('permission_denied', 'Refusing to delete without yes=true. Re-run with dry_run=true to inspect or yes=true to delete.');
+    }
+
+    let storage_deleted = 0;
+    const storage_errors: Array<{ storage_path: string; error: string }> = [];
+    if (ctx.config.storage && p.keep_storage !== true) {
+      const { createStorage } = await import('./storage.ts');
+      const storage = await createStorage(ctx.config.storage as any);
+      for (const row of rows) {
+        try {
+          await storage.delete(String(row.storage_path));
+          storage_deleted++;
+        } catch (err) {
+          storage_errors.push({ storage_path: String(row.storage_path), error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+    }
+    if (storage_errors.length > 0) {
+      throw new OperationError('storage_error', `Aborting DB row deletion because ${storage_errors.length} storage delete(s) failed.`, JSON.stringify(storage_errors));
+    }
+
+    let db_deleted = 0;
+    for (const row of rows) {
+      const deleted = await sql`DELETE FROM files WHERE id = ${row.id} RETURNING id`;
+      db_deleted += deleted.length;
+    }
+
+    const cacheRoots = [
+      ...(typeof p.cache_root === 'string' && p.cache_root ? [p.cache_root] : []),
+      ...(Array.isArray(p.cache_roots) ? p.cache_roots.filter(root => typeof root === 'string') as string[] : []),
+      ...String(process.env.GBRAIN_FILE_CACHE_ROOTS || '').split(',').map(root => root.trim()).filter(Boolean),
+    ];
+    let cache_deleted = 0;
+    for (const rootValue of cacheRoots) {
+      const root = resolve(rootValue);
+      for (const row of rows) {
+        const candidate = resolve(root, normalize(String(row.storage_path)));
+        if (candidate !== root && !candidate.startsWith(root + '/')) continue;
+        if (existsSync(candidate)) {
+          unlinkSync(candidate);
+          cache_deleted++;
+        }
+      }
+    }
+
+    return {
+      status: 'deleted',
+      matched: rows.length,
+      db_deleted,
+      storage_deleted,
+      cache_deleted,
+      rows: summaryRows,
+    };
+  },
+};
+
 // --- Jobs (Minions) ---
 
 const submit_job: Operation = {
@@ -5357,7 +5481,7 @@ export const operations: Operation[] = [
   // Ingest log
   log_ingest, get_ingest_log,
   // Files
-  file_list, file_upload, file_url,
+  file_list, file_upload, file_url, files_delete,
   // Jobs (Minions)
   submit_job, get_job, list_jobs, cancel_job, retry_job, get_job_progress,
   pause_job, resume_job, replay_job, send_job_message,

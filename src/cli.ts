@@ -297,6 +297,28 @@ async function main() {
 
   // CLI-only commands
   if (CLI_ONLY.has(command)) {
+    if (command === 'files' && subArgs[0] === 'delete') {
+      const cfgPre = loadConfig();
+      if (isThinClient(cfgPre)) {
+        const { parseDeleteFileArgs } = await import('./commands/files.ts');
+        const deleteOpts = parseDeleteFileArgs(subArgs.slice(1));
+        const op = operations.find(candidate => candidate.name === 'files_delete');
+        if (!op) throw new Error('Internal error: files_delete operation is not registered');
+        const params: Record<string, unknown> = {
+          ...(deleteOpts.storagePath ? { storage_path: deleteOpts.storagePath } : {}),
+          ...(deleteOpts.pageSlug ? { page_slug: deleteOpts.pageSlug } : {}),
+          ...(deleteOpts.filename ? { filename: deleteOpts.filename } : {}),
+          dry_run: deleteOpts.dryRun,
+          yes: deleteOpts.yes,
+          all_matching_hash: deleteOpts.allMatchingHash,
+          keep_storage: deleteOpts.keepStorage,
+          ...(deleteOpts.cacheRoots.length === 1 ? { cache_root: deleteOpts.cacheRoots[0] } : {}),
+          ...(deleteOpts.cacheRoots.length > 1 ? { cache_roots: deleteOpts.cacheRoots } : {}),
+        };
+        await runThinClientRouted(op, params, cfgPre!, getCliOptions());
+        return;
+      }
+    }
     await handleCliOnly(command, subArgs);
     return;
   }
