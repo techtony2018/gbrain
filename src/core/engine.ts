@@ -309,6 +309,90 @@ export interface TakesListOpts {
   offset?: number;
 }
 
+export type TakeProposalStatus = 'pending' | 'accepted' | 'rejected' | 'superseded' | 'deferred';
+
+export interface TakeProposal {
+  id: number;
+  source_id: string;
+  page_slug: string;
+  content_hash: string;
+  prompt_version: string;
+  wave_version: string;
+  proposed_at: string;
+  proposal_run_id: string;
+  status: TakeProposalStatus;
+  claim_text: string;
+  kind: TakeKind;
+  holder: string;
+  weight: number;
+  domain: string | null;
+  dedup_against_fence_rows: unknown;
+  model_id: string;
+  acted_at: string | null;
+  acted_by: string | null;
+  promoted_row_num: number | null;
+  predicted_brier: number | null;
+  predicted_brier_bucket_n: number | null;
+  source_exists: boolean;
+  source_preview: string | null;
+}
+
+export interface TakeProposalCounts {
+  pending: number;
+  accepted: number;
+  rejected: number;
+  superseded: number;
+  deferred: number;
+}
+
+export interface TakeProposalListOpts {
+  id?: number;
+  status?: TakeProposalStatus | 'all';
+  page_slug?: string;
+  holder?: string;
+  sourceId?: string;
+  sourceIds?: string[];
+  takesHoldersAllowList?: string[];
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface TakeProposalActionOpts {
+  id: number;
+  actedBy?: string;
+  sourceId?: string;
+  sourceIds?: string[];
+  takesHoldersAllowList?: string[];
+}
+
+export interface TakeProposalActionResult {
+  proposal: TakeProposal;
+  take: Take | null;
+  idempotent: boolean;
+}
+
+export interface TakeProposalBulkActionOpts {
+  ids: number[];
+  action: 'accept' | 'reject' | 'defer';
+  actedBy?: string;
+  sourceId?: string;
+  sourceIds?: string[];
+  takesHoldersAllowList?: string[];
+  limit?: number;
+}
+
+export interface TakeProposalBulkActionResult {
+  results: Array<{
+    id: number;
+    ok: boolean;
+    proposal?: TakeProposal;
+    take?: Take | null;
+    idempotent?: boolean;
+    error?: string;
+  }>;
+}
+
 /** Search result row from searchTakes / searchTakesVector. */
 export interface TakeHit {
   take_id: number;
@@ -1467,6 +1551,26 @@ export interface BrainEngine {
 
   /** List takes filtered by holder/kind/active/etc. Resolves page_slug via JOIN. */
   listTakes(opts?: TakesListOpts): Promise<Take[]>;
+
+  /** List take proposals with source/holder scoping and status counts. */
+  listTakeProposals(opts?: TakeProposalListOpts): Promise<{
+    proposals: TakeProposal[];
+    counts: TakeProposalCounts;
+    limit: number;
+    offset: number;
+  }>;
+
+  /** Promote a pending proposal into a take exactly once. */
+  acceptTakeProposal(opts: TakeProposalActionOpts): Promise<TakeProposalActionResult>;
+
+  /** Mark a proposal rejected without creating a take. */
+  rejectTakeProposal(opts: TakeProposalActionOpts): Promise<TakeProposalActionResult>;
+
+  /** Mark a proposal deferred without creating a take. */
+  deferTakeProposal(opts: TakeProposalActionOpts): Promise<TakeProposalActionResult>;
+
+  /** Apply a bounded proposal action batch. */
+  bulkTakeProposalAction(opts: TakeProposalBulkActionOpts): Promise<TakeProposalBulkActionResult>;
 
   /**
    * Keyword search across active takes. Uses pg_trgm similarity over claim text.

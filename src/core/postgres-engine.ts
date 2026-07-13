@@ -7,6 +7,9 @@ import type {
   DreamVerdict, DreamVerdictInput,
   FileSpec, FileRow,
   TakeBatchInput, Take, TakesListOpts, TakeHit, StaleTakeRow,
+  TakeProposalActionOpts, TakeProposalActionResult, TakeProposalBulkActionOpts,
+  TakeProposalBulkActionResult, TakeProposalListOpts, TakeProposal,
+  TakeProposalCounts,
   TakeResolution, SynthesisEvidenceInput,
   TakesScorecard, TakesScorecardOpts, CalibrationBucket, CalibrationCurveOpts,
   FactRow, FactKind, FactVisibility, FactInsertStatus,
@@ -65,6 +68,13 @@ import { resolveBoostMap, resolveHardExcludes } from './search/source-boost.ts';
 import { buildSourceFactorCase, buildHardExcludeClause, buildVisibilityClause, buildRecencyComponentSql, buildBestPerPagePoolCte } from './search/sql-ranking.ts';
 import { DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_DIMENSIONS } from './ai/defaults.ts';
 import { DELETE_BATCH_SIZE } from './engine-constants.ts';
+import {
+  acceptTakeProposal as acceptTakeProposalImpl,
+  bulkTakeProposalAction as bulkTakeProposalActionImpl,
+  deferTakeProposal as deferTakeProposalImpl,
+  listTakeProposals as listTakeProposalsImpl,
+  rejectTakeProposal as rejectTakeProposalImpl,
+} from './take-proposals.ts';
 
 function escapeSqlStringLiteral(value: string): string {
   return value.replace(/'/g, "''");
@@ -4610,6 +4620,31 @@ export class PostgresEngine implements BrainEngine {
       LIMIT ${limit} OFFSET ${offset}
     `;
     return rows.map((r) => takeRowToTake(r as Record<string, unknown>));
+  }
+
+  async listTakeProposals(opts: TakeProposalListOpts = {}): Promise<{
+    proposals: TakeProposal[];
+    counts: TakeProposalCounts;
+    limit: number;
+    offset: number;
+  }> {
+    return listTakeProposalsImpl(this, opts);
+  }
+
+  async acceptTakeProposal(opts: TakeProposalActionOpts): Promise<TakeProposalActionResult> {
+    return acceptTakeProposalImpl(this, opts);
+  }
+
+  async rejectTakeProposal(opts: TakeProposalActionOpts): Promise<TakeProposalActionResult> {
+    return rejectTakeProposalImpl(this, opts);
+  }
+
+  async deferTakeProposal(opts: TakeProposalActionOpts): Promise<TakeProposalActionResult> {
+    return deferTakeProposalImpl(this, opts);
+  }
+
+  async bulkTakeProposalAction(opts: TakeProposalBulkActionOpts): Promise<TakeProposalBulkActionResult> {
+    return bulkTakeProposalActionImpl(this, opts);
   }
 
   async searchTakes(query: string, opts: SearchOpts & { takesHoldersAllowList?: string[] } = {}): Promise<TakeHit[]> {

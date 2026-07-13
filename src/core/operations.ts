@@ -1774,6 +1774,136 @@ const takes_search: Operation = {
   cliHints: { name: 'takes-search', positional: ['query'] },
 };
 
+const take_proposals_list: Operation = {
+  name: 'take_proposals_list',
+  description: 'List bounded take proposals for review, with status/source/holder/search filters and counts by status.',
+  scope: 'read',
+  params: {
+    id: { type: 'number', description: 'Filter to one proposal id' },
+    status: { type: 'string', description: 'pending | accepted | rejected | deferred | superseded | all (default pending)' },
+    page_slug: { type: 'string', description: 'Filter to one source page slug' },
+    holder: { type: 'string', description: 'Filter to this holder' },
+    search: { type: 'string', description: 'Case-insensitive match against claim/page/domain' },
+    limit: { type: 'number', description: 'Max proposals (default 50, cap 200)' },
+    offset: { type: 'number', description: 'Skip first N proposals' },
+  },
+  handler: async (ctx, p) => {
+    return ctx.engine.listTakeProposals({
+      id: p.id as number | undefined,
+      status: p.status as never,
+      page_slug: p.page_slug as string | undefined,
+      holder: p.holder as string | undefined,
+      search: p.search as string | undefined,
+      limit: p.limit as number | undefined,
+      offset: p.offset as number | undefined,
+      ...sourceScopeOpts(ctx),
+      takesHoldersAllowList: ctx.takesHoldersAllowList,
+    });
+  },
+  cliHints: { name: 'take-proposals-list' },
+};
+
+const take_proposals_accept: Operation = {
+  name: 'take_proposals_accept',
+  description: 'Accept a pending take proposal and promote it into a durable take exactly once.',
+  scope: 'write',
+  params: {
+    id: { type: 'number', required: true, description: 'Proposal id' },
+    acted_by: { type: 'string', description: 'Reviewer identifier' },
+  },
+  handler: async (ctx, p) => {
+    try {
+      return await ctx.engine.acceptTakeProposal({
+        id: p.id as number,
+        actedBy: p.acted_by as string | undefined,
+        ...sourceScopeOpts(ctx),
+        takesHoldersAllowList: ctx.takesHoldersAllowList,
+      });
+    } catch (err) {
+      throw new OperationError('take_proposal_action_failed', err instanceof Error ? err.message : String(err));
+    }
+  },
+  cliHints: { name: 'take-proposals-accept', positional: ['id'] },
+};
+
+const take_proposals_reject: Operation = {
+  name: 'take_proposals_reject',
+  description: 'Reject a pending take proposal without creating a take.',
+  scope: 'write',
+  params: {
+    id: { type: 'number', required: true, description: 'Proposal id' },
+    acted_by: { type: 'string', description: 'Reviewer identifier' },
+  },
+  handler: async (ctx, p) => {
+    try {
+      return await ctx.engine.rejectTakeProposal({
+        id: p.id as number,
+        actedBy: p.acted_by as string | undefined,
+        ...sourceScopeOpts(ctx),
+        takesHoldersAllowList: ctx.takesHoldersAllowList,
+      });
+    } catch (err) {
+      throw new OperationError('take_proposal_action_failed', err instanceof Error ? err.message : String(err));
+    }
+  },
+  cliHints: { name: 'take-proposals-reject', positional: ['id'] },
+};
+
+const take_proposals_defer: Operation = {
+  name: 'take_proposals_defer',
+  description: 'Defer a pending take proposal without creating a take.',
+  scope: 'write',
+  params: {
+    id: { type: 'number', required: true, description: 'Proposal id' },
+    acted_by: { type: 'string', description: 'Reviewer identifier' },
+  },
+  handler: async (ctx, p) => {
+    try {
+      return await ctx.engine.deferTakeProposal({
+        id: p.id as number,
+        actedBy: p.acted_by as string | undefined,
+        ...sourceScopeOpts(ctx),
+        takesHoldersAllowList: ctx.takesHoldersAllowList,
+      });
+    } catch (err) {
+      throw new OperationError('take_proposal_action_failed', err instanceof Error ? err.message : String(err));
+    }
+  },
+  cliHints: { name: 'take-proposals-defer', positional: ['id'] },
+};
+
+const take_proposals_bulk: Operation = {
+  name: 'take_proposals_bulk',
+  description: 'Apply a bounded accept/reject/defer action to take proposals.',
+  scope: 'write',
+  params: {
+    ids: { type: 'array', required: true, description: 'Proposal ids' },
+    action: { type: 'string', required: true, description: 'accept | reject | defer' },
+    acted_by: { type: 'string', description: 'Reviewer identifier' },
+    limit: { type: 'number', description: 'Max ids to process (default 25, cap 100)' },
+  },
+  handler: async (ctx, p) => {
+    const action = p.action as string;
+    if (!['accept', 'reject', 'defer'].includes(action)) {
+      throw new OperationError('invalid_params', `Unsupported take proposal bulk action: ${action}`);
+    }
+    const rawIds = Array.isArray(p.ids)
+      ? p.ids
+      : typeof p.ids === 'string'
+        ? p.ids.split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+    return ctx.engine.bulkTakeProposalAction({
+      ids: rawIds.map(Number),
+      action: action as 'accept' | 'reject' | 'defer',
+      actedBy: p.acted_by as string | undefined,
+      limit: p.limit as number | undefined,
+      ...sourceScopeOpts(ctx),
+      takesHoldersAllowList: ctx.takesHoldersAllowList,
+    });
+  },
+  cliHints: { name: 'take-proposals-bulk' },
+};
+
 /**
  * v0.30.0 (Slice A1): aggregate calibration scorecard. Pure SQL aggregation.
  *
@@ -5492,7 +5622,9 @@ export const operations: Operation[] = [
   // v0.36.1.0 (T7) — Hindsight calibration wave: read profile via MCP
   get_calibration_profile,
   // v0.28: Takes + think
-  takes_list, takes_search, think,
+  takes_list, takes_search,
+  take_proposals_list, take_proposals_accept, take_proposals_reject, take_proposals_defer, take_proposals_bulk,
+  think,
   // v0.30: calibration aggregates over takes
   takes_scorecard, takes_calibration,
   // v0.28: whoami + scoped sources management

@@ -10,6 +10,9 @@ import type {
   DreamVerdict, DreamVerdictInput,
   FileSpec, FileRow,
   TakeBatchInput, Take, TakesListOpts, TakeHit, StaleTakeRow,
+  TakeProposalActionOpts, TakeProposalActionResult, TakeProposalBulkActionOpts,
+  TakeProposalBulkActionResult, TakeProposalListOpts, TakeProposal,
+  TakeProposalCounts,
   TakeResolution, SynthesisEvidenceInput,
   TakesScorecard, TakesScorecardOpts, CalibrationBucket, CalibrationCurveOpts,
   FactRow, FactKind, FactVisibility, FactInsertStatus,
@@ -63,6 +66,13 @@ import {
   EmbeddingColumnNotRegisteredError,
 } from './search/embedding-column.ts';
 import { hasCJK, escapeLikePattern } from './cjk.ts';
+import {
+  acceptTakeProposal as acceptTakeProposalImpl,
+  bulkTakeProposalAction as bulkTakeProposalActionImpl,
+  deferTakeProposal as deferTakeProposalImpl,
+  listTakeProposals as listTakeProposalsImpl,
+  rejectTakeProposal as rejectTakeProposalImpl,
+} from './take-proposals.ts';
 
 type PGLiteDB = PGlite;
 
@@ -4599,6 +4609,31 @@ export class PGLiteEngine implements BrainEngine {
       ]
     );
     return rows.map((r) => takeRowToTake(r as Record<string, unknown>));
+  }
+
+  async listTakeProposals(opts: TakeProposalListOpts = {}): Promise<{
+    proposals: TakeProposal[];
+    counts: TakeProposalCounts;
+    limit: number;
+    offset: number;
+  }> {
+    return listTakeProposalsImpl(this, opts);
+  }
+
+  async acceptTakeProposal(opts: TakeProposalActionOpts): Promise<TakeProposalActionResult> {
+    return acceptTakeProposalImpl(this, opts);
+  }
+
+  async rejectTakeProposal(opts: TakeProposalActionOpts): Promise<TakeProposalActionResult> {
+    return rejectTakeProposalImpl(this, opts);
+  }
+
+  async deferTakeProposal(opts: TakeProposalActionOpts): Promise<TakeProposalActionResult> {
+    return deferTakeProposalImpl(this, opts);
+  }
+
+  async bulkTakeProposalAction(opts: TakeProposalBulkActionOpts): Promise<TakeProposalBulkActionResult> {
+    return bulkTakeProposalActionImpl(this, opts);
   }
 
   async searchTakes(

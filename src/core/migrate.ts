@@ -3415,7 +3415,7 @@ export const MIGRATIONS: Migration[] = [
         proposed_at                 TIMESTAMPTZ  NOT NULL DEFAULT now(),
         proposal_run_id             TEXT         NOT NULL,
         status                      TEXT         NOT NULL DEFAULT 'pending'
-                                                 CHECK (status IN ('pending','accepted','rejected','superseded')),
+                                                 CHECK (status IN ('pending','accepted','rejected','superseded','deferred')),
         claim_text                  TEXT         NOT NULL,
         kind                        TEXT         NOT NULL,
         holder                      TEXT         NOT NULL,
@@ -5503,6 +5503,18 @@ export const MIGRATIONS: Migration[] = [
       CREATE UNIQUE INDEX IF NOT EXISTS idx_facts_ontology_dedup
         ON facts(source_id, entity_slug, dimension, value_hash, source_markdown_slug)
         WHERE dimension IS NOT NULL;
+    `,
+  },
+  {
+    version: 123,
+    name: 'take_proposals_deferred_status',
+    idempotent: true,
+    sql: `
+      ALTER TABLE take_proposals DROP CONSTRAINT IF EXISTS take_proposals_status_check;
+      ALTER TABLE take_proposals DROP CONSTRAINT IF EXISTS take_proposals_status_values;
+      ALTER TABLE take_proposals
+        ADD CONSTRAINT take_proposals_status_values
+        CHECK (status IN ('pending','accepted','rejected','superseded','deferred'));
     `,
   },
 ];
