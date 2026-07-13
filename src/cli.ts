@@ -297,6 +297,14 @@ async function main() {
 
   // CLI-only commands
   if (CLI_ONLY.has(command)) {
+    if (command === 'think') {
+      const cfgPre = loadConfig();
+      if (isThinClient(cfgPre)) {
+        const { runThinkCli } = await import('./commands/think.ts');
+        await runThinkCli(null as unknown as BrainEngine, subArgs);
+        return;
+      }
+    }
     if (command === 'call') {
       const cfgPre = loadConfig();
       if (isThinClient(cfgPre)) {
