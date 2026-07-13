@@ -297,6 +297,14 @@ async function main() {
 
   // CLI-only commands
   if (CLI_ONLY.has(command)) {
+    if (command === 'call') {
+      const cfgPre = loadConfig();
+      if (isThinClient(cfgPre)) {
+        const { runRemoteCall } = await import('./commands/call.ts');
+        await runRemoteCall(cfgPre!, subArgs);
+        return;
+      }
+    }
     if (command === 'files' && subArgs[0] === 'delete') {
       const cfgPre = loadConfig();
       if (isThinClient(cfgPre)) {

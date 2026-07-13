@@ -1,6 +1,8 @@
 import type { BrainEngine } from '../core/engine.ts';
 import { handleToolCall } from '../mcp/server.ts';
 import { resolveSourceId } from '../core/source-resolver.ts';
+import type { GBrainConfig } from '../core/config.ts';
+import { callRemoteTool, unpackToolResult } from '../core/mcp-client.ts';
 
 /**
  * `gbrain call <tool> <json>` — trusted local op-dispatch surface.
@@ -11,7 +13,7 @@ import { resolveSourceId } from '../core/source-resolver.ts';
  * > brain default > 'default'). Without --source, the chain still resolves —
  * env / dotfile / path-match all work.
  */
-export async function runCall(engine: BrainEngine, args: string[]) {
+function parseCallArgs(args: string[]): { explicitSource: string | null; tool: string | undefined; params: Record<string, unknown> } {
   // Parse --source <id> from anywhere in args (must come before tool/json
   // tokens to keep the existing `gbrain call <tool> <json>` shape readable,
   // but the parser is positional-tolerant for ergonomics).
@@ -45,9 +47,24 @@ export async function runCall(engine: BrainEngine, args: string[]) {
   }
 
   const params = jsonStr ? JSON.parse(jsonStr) : {};
+  return { explicitSource, tool, params };
+}
+
+export async function runRemoteCall(config: GBrainConfig, args: string[]) {
+  const { explicitSource, tool, params } = parseCallArgs(args);
+  if (explicitSource && params.source === undefined && params.source_id === undefined) {
+    params.source = explicitSource;
+  }
+  const raw = await callRemoteTool(config, tool!, params);
+  const result = unpackToolResult(raw);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+export async function runCall(engine: BrainEngine, args: string[]) {
+  const { explicitSource, tool, params } = parseCallArgs(args);
   // Resolve through the canonical 6-tier chain. resolveSourceId() throws if
   // an explicit/env/dotfile id refers to a non-registered source.
   const sourceId = await resolveSourceId(engine, explicitSource);
-  const result = await handleToolCall(engine, tool, params, { sourceId });
+  const result = await handleToolCall(engine, tool!, params, { sourceId });
   console.log(JSON.stringify(result, null, 2));
 }

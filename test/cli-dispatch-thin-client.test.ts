@@ -139,6 +139,14 @@ describe('thin-client dispatch guard does NOT refuse safe commands', () => {
     expect(r.exitCode).toBe(0);
     expect(r.stderr).not.toContain('requires a local engine');
   });
+
+  test('`gbrain call` routes through remote MCP before any local DB connection', async () => {
+    seedThinClientConfig();
+    const r = await run(['call', 'take_proposals_list', '{"limit":1}']);
+    expect(r.stdout + r.stderr).not.toContain('No database URL');
+    expect(r.stdout + r.stderr).not.toContain('database_url is missing');
+    expect(r.stdout + r.stderr).toContain('OAuth discovery');
+  });
 });
 
 describe('thin-client doctor routes to runRemoteDoctor', () => {
