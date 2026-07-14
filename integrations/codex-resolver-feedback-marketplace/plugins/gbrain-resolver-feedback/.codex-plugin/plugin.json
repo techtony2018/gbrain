@@ -1,6 +1,6 @@
 {
   "name": "gbrain-resolver-feedback",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Privacy-safe resolver decision and outcome telemetry for Codex agents.",
   "hooks": "./hooks/hooks.json",
   "interface": {

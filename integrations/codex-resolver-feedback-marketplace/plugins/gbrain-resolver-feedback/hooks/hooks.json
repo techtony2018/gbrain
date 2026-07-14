@@ -17,7 +17,7 @@
           {
             "type": "command",
             "command": "python3 \"$HOME/.gbrain/resolver-feedback-agent.py\" hook --producer codex --phase after",
-            "async": true
+            "async": false
           }
         ]
       }

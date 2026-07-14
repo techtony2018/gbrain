@@ -21,6 +21,8 @@ install_openclaw() {
   local plugin="$repo_root/integrations/openclaw-resolver-feedback"
   openclaw plugins install "$plugin" --force >/dev/null
   openclaw plugins enable gbrain-resolver-feedback >/dev/null
+  printf '%s\n' '{"plugins":{"entries":{"gbrain-resolver-feedback":{"hooks":{"allowConversationAccess":true}}}}}' \
+    | openclaw config patch --stdin >/dev/null
   echo "OpenClaw resolver hooks installed"
 }
 
