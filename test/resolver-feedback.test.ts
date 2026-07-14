@@ -118,7 +118,7 @@ describe('resolver feedback MCP operations', () => {
       event_id: 'codex-rollback-1',
       producer: 'codex',
       resolver_version: 'resolver-v1',
-      intent_summary: 'manual skill override for rollback fixture',
+      intent_summary: 'task action research domains coding research',
       selected_route: 'general-search',
       outcome: 'fallback',
       correction_signal: 'manual_override',
@@ -127,7 +127,7 @@ describe('resolver feedback MCP operations', () => {
       event_id: 'openclaw-rollback-1',
       producer: 'openclaw',
       resolver_version: 'resolver-v1',
-      intent_summary: 'manual skill override for rollback fixture',
+      intent_summary: 'task action research domains coding research',
       selected_route: 'general-search',
       outcome: 'fallback',
       correction_signal: 'manual_override',
@@ -154,7 +154,7 @@ describe('resolver feedback MCP operations', () => {
     expect(applied.release.active).toBe(true);
     expect(applied.distribution.map((row: { environment: string }) => row.environment).sort()).toEqual(['codex', 'openclaw']);
     expect(applied.distribution.every((row: { status: string }) => row.status === 'pending')).toBe(true);
-    expect(current.policy.rules[0].intent_cluster).toBe('manual-skill-override-rollback-fixture');
+    expect(current.policy.rules[0].intent_cluster).toBe('task-action-research-domains-coding-research');
     expect(acknowledged.distribution.status).toBe('active');
 
     const rolledBack = await call('resolver_releases_rollback', {

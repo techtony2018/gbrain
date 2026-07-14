@@ -7,7 +7,7 @@ const EVENT_OUTCOMES = new Set(['success', 'fallback', 'timeout', 'no_match', 'e
 const PROPOSAL_STATUSES = new Set(['pending', 'accepted', 'rejected', 'applied', 'failed']);
 const SECRET_PATTERNS = [
   /(?:api[_-]?key|token|secret|password)\s*[:=]\s*[^,\s]+/gi,
-  /sk-[a-z0-9_-]+/gi,
+  /\bsk-[a-z0-9_-]+/gi,
   /Bearer\s+[a-z0-9._-]+/gi,
 ];
 
