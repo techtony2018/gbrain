@@ -86,6 +86,9 @@ export type CyclePhase =
   // brain-wide BudgetTracker and passes it through opts.budgetTracker
   // so the core's auto-wrap doesn't REPLACE it.
   | 'conversation_facts_backfill'
+  // Resolver feedback loop learning phase. Reads central resolver events,
+  // creates pending proposals only, and never applies resolver changes.
+  | 'resolver_learning'
   // v0.41.39 (#1700) — opt-in (default OFF) trickle that develops a few thin
   // (stub) pages per source per tick via brain-internal grounded synthesis.
   // Same brain-wide BudgetTracker + walltime-cap shape as
@@ -157,6 +160,7 @@ export const ALL_PHASES: CyclePhase[] = [
   // block placement, which runs between the calibration trio and embed),
   // and BEFORE embed so newly-inserted facts get embedded same-cycle.
   'conversation_facts_backfill',
+  'resolver_learning',
   // v0.41.39 (#1700) — develop thin stub pages. After
   // conversation_facts_backfill, BEFORE embed so enriched bodies get
   // chunked + embedded in the same cycle.
@@ -235,6 +239,7 @@ export const PHASE_SCOPE: Record<CyclePhase, PhaseScope> = {
   // fanout enforcement today (per the comment above); the phase
   // wrapper does its own multi-source loop via listSources().
   conversation_facts_backfill: 'source',
+  resolver_learning: 'global',
   // v0.41.39 (#1700) — per-source (wrapper loops listSources, same as above).
   enrich_thin: 'source',
   // v0.41.20.0 SkillOpt — global (walks the skills/ directory; per-skill
@@ -2097,6 +2102,30 @@ export async function runCycle(
         );
         result.duration_ms = duration_ms;
         phaseResults.push(result);
+        progress.finish();
+      }
+      await safeYield(opts.yieldBetweenPhases);
+    }
+
+    // ── Resolver feedback-loop learning ─────────────────────────
+    // Reads central resolver events and writes evidence-backed pending
+    // proposals only. Apply/distribution remains a human-approved operation.
+    if (phases.includes('resolver_learning')) {
+      checkAborted(opts.signal);
+      if (!engine) {
+        phaseResults.push({
+          phase: 'resolver_learning',
+          status: 'skipped',
+          duration_ms: 0,
+          summary: 'no database connected',
+          details: { reason: 'no_database' },
+        });
+      } else {
+        progress.start('cycle.resolver_learning');
+        const { runPhaseResolverLearning } = await import('./resolver-feedback.ts');
+        const { result, duration_ms } = await timePhase(() => runPhaseResolverLearning(engine, { dryRun }));
+        result.duration_ms = duration_ms;
+        phaseResults.push(result as never);
         progress.finish();
       }
       await safeYield(opts.yieldBetweenPhases);

@@ -45,6 +45,19 @@ import {
   LIST_SKILLS_DESCRIPTION,
   GET_SKILL_DESCRIPTION,
 } from './operations-descriptions.ts';
+import {
+  submitResolverEvent,
+  listResolverEvents,
+  generateResolverProposals,
+  listResolverProposals,
+  updateResolverProposal,
+  applyResolverRelease,
+  rollbackResolverRelease,
+  measureResolverImpact,
+  resolverFeedbackBackup,
+  resolverFeedbackRestore,
+  resolverFeedbackHealth,
+} from './resolver-feedback.ts';
 
 // --- Types ---
 
@@ -1902,6 +1915,145 @@ const take_proposals_bulk: Operation = {
     });
   },
   cliHints: { name: 'take-proposals-bulk' },
+};
+
+const resolver_events_submit: Operation = {
+  name: 'resolver_events_submit',
+  description: 'Submit one privacy-safe resolver decision/outcome event with stable client event_id deduplication.',
+  scope: 'write',
+  params: {
+    event_id: { type: 'string', required: true },
+    producer: { type: 'string', required: true, description: 'codex | openclaw | stargraph | other' },
+    resolver_version: { type: 'string', required: true },
+    intent_summary: { type: 'string', required: true, description: 'Sanitized summary only; raw prompts are ignored.' },
+    candidate_resolvers: { type: 'array' },
+    selected_route: { type: 'string' },
+    confidence: { type: 'number' },
+    related_node_slug: { type: 'string' },
+    outcome: { type: 'string', description: 'success | fallback | timeout | no_match | error | manual_correction | manual_override' },
+    correction_signal: { type: 'string' },
+    operation_path: { type: 'string' },
+    client_timestamp: { type: 'string' },
+  },
+  handler: async (ctx, p) => submitResolverEvent(ctx.engine, p),
+  cliHints: { name: 'resolver-events-submit' },
+};
+
+const resolver_events_list: Operation = {
+  name: 'resolver_events_list',
+  description: 'List bounded central resolver feedback events for operations dashboards and learning.',
+  scope: 'read',
+  params: {
+    producer: { type: 'string' },
+    outcome: { type: 'string' },
+    limit: { type: 'number' },
+  },
+  handler: async (ctx, p) => listResolverEvents(ctx.engine, p),
+  cliHints: { name: 'resolver-events-list' },
+};
+
+const resolver_proposals_generate: Operation = {
+  name: 'resolver_proposals_generate',
+  description: 'Run resolver_learning proposal generation from central events. Creates pending proposals only; never applies.',
+  scope: 'write',
+  params: {
+    min_evidence: { type: 'number' },
+    dry_run: { type: 'boolean' },
+    run_source: { type: 'string' },
+  },
+  handler: async (ctx, p) => generateResolverProposals(ctx.engine, p),
+  cliHints: { name: 'resolver-proposals-generate' },
+};
+
+const resolver_proposals_list: Operation = {
+  name: 'resolver_proposals_list',
+  description: 'List central resolver learning proposals with status and evidence counts.',
+  scope: 'read',
+  params: {
+    status: { type: 'string' },
+    limit: { type: 'number' },
+  },
+  handler: async (ctx, p) => listResolverProposals(ctx.engine, p),
+  cliHints: { name: 'resolver-proposals-list' },
+};
+
+const resolver_proposals_update: Operation = {
+  name: 'resolver_proposals_update',
+  description: 'Human review action for a resolver proposal. Supports accept/reject only.',
+  scope: 'write',
+  params: {
+    proposal_id: { type: 'string', required: true },
+    action: { type: 'string', required: true, description: 'accept | reject' },
+    reason: { type: 'string' },
+  },
+  handler: async (ctx, p) => updateResolverProposal(ctx.engine, p),
+  cliHints: { name: 'resolver-proposals-update' },
+};
+
+const resolver_releases_apply: Operation = {
+  name: 'resolver_releases_apply',
+  description: 'Apply an accepted resolver proposal as a versioned resolver release distributed to Codex/OpenClaw environments.',
+  scope: 'write',
+  params: {
+    proposal_id: { type: 'string', required: true },
+    approved_by: { type: 'string' },
+    environments: { type: 'array' },
+  },
+  handler: async (ctx, p) => applyResolverRelease(ctx.engine, p),
+  cliHints: { name: 'resolver-releases-apply' },
+};
+
+const resolver_releases_rollback: Operation = {
+  name: 'resolver_releases_rollback',
+  description: 'Mark a resolver release inactive and record rollback evidence.',
+  scope: 'write',
+  params: {
+    version: { type: 'string', required: true },
+    reason: { type: 'string' },
+  },
+  handler: async (ctx, p) => rollbackResolverRelease(ctx.engine, p),
+  cliHints: { name: 'resolver-releases-rollback' },
+};
+
+const resolver_impact_measure: Operation = {
+  name: 'resolver_impact_measure',
+  description: 'Measure and persist post-release resolver outcome evidence for a proposal or resolver version.',
+  scope: 'write',
+  params: {
+    proposal_id: { type: 'string' },
+    version: { type: 'string' },
+  },
+  handler: async (ctx, p) => measureResolverImpact(ctx.engine, p),
+  cliHints: { name: 'resolver-impact-measure' },
+};
+
+const resolver_feedback_backup: Operation = {
+  name: 'resolver_feedback_backup',
+  description: 'Export resolver events, proposals, dream runs, releases, and distribution state as portable JSON.',
+  scope: 'read',
+  params: {},
+  handler: async (ctx) => resolverFeedbackBackup(ctx.engine),
+  cliHints: { name: 'resolver-feedback-backup' },
+};
+
+const resolver_feedback_restore: Operation = {
+  name: 'resolver_feedback_restore',
+  description: 'Restore portable resolver feedback JSON into the central tables idempotently.',
+  scope: 'write',
+  params: {
+    backup: { type: 'object', required: true },
+  },
+  handler: async (ctx, p) => resolverFeedbackRestore(ctx.engine, p),
+  cliHints: { name: 'resolver-feedback-restore' },
+};
+
+const resolver_feedback_health: Operation = {
+  name: 'resolver_feedback_health',
+  description: 'Return resolver feedback-loop health, last dream run, 24h event count, and proposal status counts.',
+  scope: 'read',
+  params: {},
+  handler: async (ctx) => resolverFeedbackHealth(ctx.engine),
+  cliHints: { name: 'resolver-feedback-health' },
 };
 
 /**
@@ -5624,6 +5776,10 @@ export const operations: Operation[] = [
   // v0.28: Takes + think
   takes_list, takes_search,
   take_proposals_list, take_proposals_accept, take_proposals_reject, take_proposals_defer, take_proposals_bulk,
+  resolver_events_submit, resolver_events_list,
+  resolver_proposals_generate, resolver_proposals_list, resolver_proposals_update,
+  resolver_releases_apply, resolver_releases_rollback, resolver_impact_measure,
+  resolver_feedback_backup, resolver_feedback_restore, resolver_feedback_health,
   think,
   // v0.30: calibration aggregates over takes
   takes_scorecard, takes_calibration,
