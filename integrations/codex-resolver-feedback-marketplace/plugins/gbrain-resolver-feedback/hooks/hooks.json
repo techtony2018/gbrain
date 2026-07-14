@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.gbrain/resolver-feedback-agent.py\" hook --producer codex --phase before",
+            "async": false
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.gbrain/resolver-feedback-agent.py\" hook --producer codex --phase after",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

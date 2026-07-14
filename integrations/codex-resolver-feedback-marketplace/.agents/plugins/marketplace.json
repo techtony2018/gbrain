@@ -1,0 +1,19 @@
+{
+  "name": "tony-local",
+  "interface": {
+    "displayName": "Tony Local Plugins"
+  },
+  "plugins": [
+    {
+      "name": "gbrain-resolver-feedback",
+      "source": {
+        "source": "local",
+        "path": "./plugins/gbrain-resolver-feedback"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Engineering"
+    }
+  ]
+}

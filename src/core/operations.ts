@@ -52,6 +52,8 @@ import {
   listResolverProposals,
   updateResolverProposal,
   applyResolverRelease,
+  currentResolverRelease,
+  acknowledgeResolverRelease,
   rollbackResolverRelease,
   measureResolverImpact,
   resolverFeedbackBackup,
@@ -1997,10 +1999,36 @@ const resolver_releases_apply: Operation = {
   params: {
     proposal_id: { type: 'string', required: true },
     approved_by: { type: 'string' },
+    approved_route: { type: 'string' },
     environments: { type: 'array' },
+    validation: { type: 'object', required: true },
   },
   handler: async (ctx, p) => applyResolverRelease(ctx.engine, p),
   cliHints: { name: 'resolver-releases-apply' },
+};
+
+const resolver_releases_current: Operation = {
+  name: 'resolver_releases_current',
+  description: 'Return the active resolver policy manifest and distribution state for an agent environment.',
+  scope: 'read',
+  params: {
+    environment: { type: 'string' },
+  },
+  handler: async (ctx, p) => currentResolverRelease(ctx.engine, p),
+  cliHints: { name: 'resolver-releases-current' },
+};
+
+const resolver_releases_ack: Operation = {
+  name: 'resolver_releases_ack',
+  description: 'Acknowledge that an agent environment atomically installed and checksum-verified an active resolver release.',
+  scope: 'write',
+  params: {
+    version: { type: 'string', required: true },
+    environment: { type: 'string', required: true },
+    checksum: { type: 'string', required: true },
+  },
+  handler: async (ctx, p) => acknowledgeResolverRelease(ctx.engine, p),
+  cliHints: { name: 'resolver-releases-ack' },
 };
 
 const resolver_releases_rollback: Operation = {
@@ -5778,7 +5806,7 @@ export const operations: Operation[] = [
   take_proposals_list, take_proposals_accept, take_proposals_reject, take_proposals_defer, take_proposals_bulk,
   resolver_events_submit, resolver_events_list,
   resolver_proposals_generate, resolver_proposals_list, resolver_proposals_update,
-  resolver_releases_apply, resolver_releases_rollback, resolver_impact_measure,
+  resolver_releases_apply, resolver_releases_current, resolver_releases_ack, resolver_releases_rollback, resolver_impact_measure,
   resolver_feedback_backup, resolver_feedback_restore, resolver_feedback_health,
   think,
   // v0.30: calibration aggregates over takes

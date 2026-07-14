@@ -40,6 +40,8 @@ describe('resolver feedback MCP operations', () => {
     expect(names).toContain('resolver_proposals_generate');
     expect(names).toContain('resolver_proposals_update');
     expect(names).toContain('resolver_releases_apply');
+    expect(names).toContain('resolver_releases_current');
+    expect(names).toContain('resolver_releases_ack');
     expect(names).toContain('resolver_releases_rollback');
     expect(names).toContain('resolver_impact_measure');
     expect(names).toContain('resolver_feedback_backup');
@@ -139,11 +141,21 @@ describe('resolver feedback MCP operations', () => {
       proposal_id: proposalId,
       approved_by: 'unit-test',
       environments: ['codex', 'openclaw'],
+      validation: { check_resolvable: 'passed', routing_tests: 'passed' },
+    });
+    const current = await call('resolver_releases_current', { environment: 'codex' });
+    const acknowledged = await call('resolver_releases_ack', {
+      version: applied.release.version,
+      environment: 'codex',
+      checksum: applied.release.checksum,
     });
 
     expect(applied.release.version).toMatch(/^resolver-\d{8}T/);
     expect(applied.release.active).toBe(true);
     expect(applied.distribution.map((row: { environment: string }) => row.environment).sort()).toEqual(['codex', 'openclaw']);
+    expect(applied.distribution.every((row: { status: string }) => row.status === 'pending')).toBe(true);
+    expect(current.policy.rules[0].intent_cluster).toBe('manual-skill-override-rollback-fixture');
+    expect(acknowledged.distribution.status).toBe('active');
 
     const rolledBack = await call('resolver_releases_rollback', {
       version: applied.release.version,
@@ -178,6 +190,7 @@ describe('resolver feedback MCP operations', () => {
       proposal_id: generated.proposals[0].id,
       approved_by: 'unit-test',
       environments: ['codex', 'openclaw'],
+      validation: { check_resolvable: 'passed', routing_tests: 'passed' },
     });
     const backup = await call('resolver_feedback_backup', {});
 
@@ -222,7 +235,11 @@ describe('resolver feedback MCP operations', () => {
     const generated = await call('resolver_proposals_generate', { min_evidence: 2 });
     const proposalId = generated.proposals[0].id;
     await call('resolver_proposals_update', { proposal_id: proposalId, action: 'accept', reason: 'impact fixture approval' });
-    const applied = await call('resolver_releases_apply', { proposal_id: proposalId, approved_by: 'unit-test' });
+    const applied = await call('resolver_releases_apply', {
+      proposal_id: proposalId,
+      approved_by: 'unit-test',
+      validation: { check_resolvable: 'passed', routing_tests: 'passed' },
+    });
     await call('resolver_events_submit', {
       event_id: 'impact-success-1',
       producer: 'codex',

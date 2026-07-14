@@ -68,6 +68,30 @@ function json(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as JsonRecord)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+function releasePolicy(proposal: JsonRecord, version: string, approvedRoute: string): JsonRecord {
+  return {
+    schema_version: 1,
+    version,
+    generated_at: new Date().toISOString(),
+    rules: [{
+      intent_cluster: cleanText(proposal.cluster_key, 200),
+      route: approvedRoute,
+      source_proposal: cleanText(proposal.id, 120),
+    }],
+  };
+}
+
 export async function ensureResolverFeedbackSchema(engine: BrainEngine): Promise<void> {
   await engine.executeRaw(`
     CREATE TABLE IF NOT EXISTS resolver_events (
@@ -317,18 +341,17 @@ export async function updateResolverProposal(engine: BrainEngine, payload: JsonR
   const action = cleanText(payload.action, 40).toLowerCase();
   if (!id || !['accept', 'reject'].includes(action)) throw new Error('proposal_id and action accept|reject are required');
   const status = action === 'accept' ? 'accepted' : 'rejected';
+  const review = {
+    review_reason: cleanText(payload.reason, 300),
+    approved_route: cleanText(payload.approved_route, 160),
+  };
   const rows = await engine.executeRaw<JsonRecord>(
     `UPDATE resolver_proposals
      SET status = $2, updated_at = now(),
-         validation = jsonb_set(
-           CASE WHEN jsonb_typeof(validation) = 'object' THEN validation ELSE '{}'::jsonb END,
-           '{review_reason}',
-           to_jsonb($3::text),
-           true
-         )
+         validation = (CASE WHEN jsonb_typeof(validation) = 'object' THEN validation ELSE '{}'::jsonb END) || $3::jsonb
      WHERE id = $1
      RETURNING *`,
-    [id, status, cleanText(payload.reason, 300)],
+    [id, status, json(review)],
   );
   if (!rows[0]) throw new Error(`resolver proposal not found: ${id}`);
   return { proposal: asObject(rows[0]) };
@@ -341,14 +364,22 @@ export async function applyResolverRelease(engine: BrainEngine, payload: JsonRec
   const proposal = rows[0];
   if (!proposal) throw new Error(`resolver proposal not found: ${proposalId}`);
   if (String(proposal.status) !== 'accepted') throw new Error(`resolver proposal must be accepted before apply: ${proposalId}`);
+  const validation = asJsonRecord(payload.validation);
+  if (validation.check_resolvable !== 'passed' || validation.routing_tests !== 'passed') {
+    throw new Error('resolver release requires passed check_resolvable and routing_tests validation evidence');
+  }
+  const review = asJsonRecord(proposal.validation);
+  const approvedRoute = cleanText(payload.approved_route ?? review.approved_route, 160) || 'gbrain-hybrid-search';
   const environments = cleanStringArray(payload.environments, 10, 40);
   const targets = environments.length ? environments : ['codex', 'openclaw'];
-  const checksum = sha(JSON.stringify(proposal)).slice(0, 24);
   const version = `resolver-${nowId()}`;
+  const policy = releasePolicy(proposal, version, approvedRoute);
+  const checksum = sha(canonicalJson(policy));
+  await engine.executeRaw('UPDATE resolver_releases SET active = false WHERE active = true');
   await engine.executeRaw(
     `INSERT INTO resolver_releases (version, proposal_id, checksum, approved_by, active, evidence)
      VALUES ($1,$2,$3,$4,true,$5::jsonb)`,
-    [version, proposalId, checksum, cleanText(payload.approved_by, 120), json({ validation: 'synthetic-routing-eval-passed', rollback_ready: true })],
+    [version, proposalId, checksum, cleanText(payload.approved_by, 120), json({ validation, policy, rollback_ready: true })],
   );
   await engine.executeRaw(
     `UPDATE resolver_proposals
@@ -365,14 +396,59 @@ export async function applyResolverRelease(engine: BrainEngine, payload: JsonRec
   for (const env of targets) {
     await engine.executeRaw(
       `INSERT INTO resolver_release_distribution (version, environment, status, checksum)
-       VALUES ($1,$2,'distributed',$3)
+       VALUES ($1,$2,'pending',$3)
        ON CONFLICT (version, environment) DO UPDATE SET status = EXCLUDED.status, checksum = EXCLUDED.checksum, applied_at = now()`,
       [version, env, checksum],
     );
   }
   const release = (await engine.executeRaw<JsonRecord>('SELECT * FROM resolver_releases WHERE version = $1', [version]))[0];
   const distribution = await engine.executeRaw<JsonRecord>('SELECT * FROM resolver_release_distribution WHERE version = $1 ORDER BY environment', [version]);
-  return { release: asObject(release), distribution: distribution.map(asObject) };
+  return { release: asObject(release), policy, distribution: distribution.map(asObject) };
+}
+
+export async function currentResolverRelease(engine: BrainEngine, payload: JsonRecord = {}): Promise<JsonRecord> {
+  await ensureResolverFeedbackSchema(engine);
+  const environment = cleanText(payload.environment, 40);
+  const releases = await engine.executeRaw<JsonRecord>(
+    'SELECT * FROM resolver_releases WHERE active = true ORDER BY created_at DESC LIMIT 1',
+  );
+  const release = releases[0];
+  if (!release) return { release: null, policy: null, distribution: null };
+  const evidence = asJsonRecord(release.evidence);
+  const distribution = environment
+    ? (await engine.executeRaw<JsonRecord>(
+        'SELECT * FROM resolver_release_distribution WHERE version = $1 AND environment = $2',
+        [release.version, environment],
+      ))[0] ?? null
+    : null;
+  return {
+    release: asObject(release),
+    policy: asJsonRecord(evidence.policy),
+    distribution: distribution ? asObject(distribution) : null,
+  };
+}
+
+export async function acknowledgeResolverRelease(engine: BrainEngine, payload: JsonRecord): Promise<JsonRecord> {
+  await ensureResolverFeedbackSchema(engine);
+  const version = cleanText(payload.version, 120);
+  const environment = cleanText(payload.environment, 40);
+  const checksum = cleanText(payload.checksum, 128);
+  if (!version || !environment || !checksum) throw new Error('version, environment, and checksum are required');
+  const releases = await engine.executeRaw<JsonRecord>(
+    'SELECT * FROM resolver_releases WHERE version = $1 AND active = true',
+    [version],
+  );
+  if (!releases[0]) throw new Error(`active resolver release not found: ${version}`);
+  if (String(releases[0].checksum) !== checksum) throw new Error('resolver release checksum mismatch');
+  const rows = await engine.executeRaw<JsonRecord>(
+    `UPDATE resolver_release_distribution
+     SET status = 'active', applied_at = now()
+     WHERE version = $1 AND environment = $2 AND checksum = $3
+     RETURNING *`,
+    [version, environment, checksum],
+  );
+  if (!rows[0]) throw new Error(`resolver distribution target not found: ${environment}`);
+  return { distribution: asObject(rows[0]) };
 }
 
 export async function rollbackResolverRelease(engine: BrainEngine, payload: JsonRecord): Promise<JsonRecord> {
@@ -387,7 +463,23 @@ export async function rollbackResolverRelease(engine: BrainEngine, payload: Json
   );
   if (!rows[0]) throw new Error(`resolver release not found: ${version}`);
   await engine.executeRaw('UPDATE resolver_release_distribution SET status = $2 WHERE version = $1', [version, 'rolled_back']);
-  return { release: asObject(rows[0]) };
+  const previous = (await engine.executeRaw<JsonRecord>(
+    `UPDATE resolver_releases SET active = true
+     WHERE version = (
+       SELECT version FROM resolver_releases
+       WHERE version <> $1 AND rollback_reason = ''
+       ORDER BY created_at DESC LIMIT 1
+     ) RETURNING *`,
+    [version],
+  ))[0] ?? null;
+  if (previous) {
+    await engine.executeRaw(
+      `UPDATE resolver_release_distribution SET status = 'pending', applied_at = now()
+       WHERE version = $1`,
+      [previous.version],
+    );
+  }
+  return { release: asObject(rows[0]), restored_release: previous ? asObject(previous) : null };
 }
 
 export async function resolverFeedbackBackup(engine: BrainEngine): Promise<JsonRecord> {
@@ -520,6 +612,10 @@ export async function resolverFeedbackHealth(engine: BrainEngine): Promise<JsonR
   const eventsRows = await engine.executeRaw<{ count: number }>("SELECT count(*)::int AS count FROM resolver_events WHERE created_at > now() - interval '24 hours'");
   const countsRows = await engine.executeRaw<{ status: string; count: number }>('SELECT status, count(*)::int AS count FROM resolver_proposals GROUP BY status');
   const lastRuns = await engine.executeRaw<JsonRecord>('SELECT * FROM resolver_dream_runs ORDER BY started_at DESC LIMIT 1');
+  const activeReleases = await engine.executeRaw<JsonRecord>('SELECT version, checksum, created_at FROM resolver_releases WHERE active = true ORDER BY created_at DESC LIMIT 1');
+  const distributionRows = activeReleases[0]
+    ? await engine.executeRaw<JsonRecord>('SELECT environment, status, applied_at FROM resolver_release_distribution WHERE version = $1 ORDER BY environment', [activeReleases[0].version])
+    : [];
   const proposalCounts = Object.fromEntries([...PROPOSAL_STATUSES].map(s => [s, 0])) as JsonRecord;
   for (const row of countsRows) proposalCounts[row.status] = Number(row.count);
   return {
@@ -527,6 +623,8 @@ export async function resolverFeedbackHealth(engine: BrainEngine): Promise<JsonR
     events_24h: Number(eventsRows[0]?.count ?? 0),
     proposal_counts: proposalCounts,
     last_dream_run: lastRuns[0] ? asObject(lastRuns[0]) : null,
+    active_release: activeReleases[0] ? asObject(activeReleases[0]) : null,
+    active_distribution: distributionRows.map(asObject),
     scheduled_loop: lastRuns[0] ? 'observed' : 'overdue',
   };
 }

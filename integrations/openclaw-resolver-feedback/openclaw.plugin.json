@@ -1,0 +1,13 @@
+{
+  "id": "gbrain-resolver-feedback",
+  "name": "GBrain Resolver Feedback",
+  "description": "Privacy-safe resolver decision and outcome telemetry for OpenClaw agents.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
