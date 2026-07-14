@@ -53,6 +53,14 @@ function asObject(row: JsonRecord): JsonRecord {
 
 function asJsonRecord(value: unknown): JsonRecord {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as JsonRecord;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as JsonRecord;
+    } catch {
+      return {};
+    }
+  }
   return {};
 }
 
@@ -312,7 +320,12 @@ export async function updateResolverProposal(engine: BrainEngine, payload: JsonR
   const rows = await engine.executeRaw<JsonRecord>(
     `UPDATE resolver_proposals
      SET status = $2, updated_at = now(),
-         validation = jsonb_set(validation, '{review_reason}', to_jsonb($3::text), true)
+         validation = jsonb_set(
+           CASE WHEN jsonb_typeof(validation) = 'object' THEN validation ELSE '{}'::jsonb END,
+           '{review_reason}',
+           to_jsonb($3::text),
+           true
+         )
      WHERE id = $1
      RETURNING *`,
     [id, status, cleanText(payload.reason, 300)],
@@ -340,7 +353,12 @@ export async function applyResolverRelease(engine: BrainEngine, payload: JsonRec
   await engine.executeRaw(
     `UPDATE resolver_proposals
      SET status = 'applied', release_version = $2, updated_at = now(),
-         validation = jsonb_set(validation, '{apply}', to_jsonb('passed'::text), true)
+         validation = jsonb_set(
+           CASE WHEN jsonb_typeof(validation) = 'object' THEN validation ELSE '{}'::jsonb END,
+           '{apply}',
+           to_jsonb('passed'::text),
+           true
+         )
      WHERE id = $1`,
     [proposalId, version],
   );

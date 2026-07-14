@@ -132,6 +132,7 @@ describe('resolver feedback MCP operations', () => {
     });
     const generated = await call('resolver_proposals_generate', { min_evidence: 2 });
     const proposalId = generated.proposals[0].id;
+    await engine.executeRaw("UPDATE resolver_proposals SET validation = '\"legacy-scalar\"'::jsonb WHERE id = $1", [proposalId]);
     await call('resolver_proposals_update', { proposal_id: proposalId, action: 'accept', reason: 'fixture approved' });
 
     const applied = await call('resolver_releases_apply', {
