@@ -3051,19 +3051,15 @@ const file_upload: Operation = {
 
     const sql = db.getConnection();
     const existing = await sql`SELECT id FROM files WHERE content_hash = ${hash} AND storage_path = ${storagePath}`;
-    if (existing.length > 0) {
-      return { status: 'already_exists', storage_path: storagePath };
+    let evidence;
+    try {
+      const { ensureDurableStorageFile } = await import('./durable-file-storage.ts');
+      evidence = await ensureDurableStorageFile(ctx.config.storage as any, storagePath, content, mimeType, existing.length > 0);
+    } catch (uploadErr) {
+      throw new OperationError('storage_error', `Upload failed: ${uploadErr instanceof Error ? uploadErr.message : String(uploadErr)}`);
     }
-
-    // Upload to storage backend if configured
-    if (ctx.config.storage) {
-      const { createStorage } = await import('./storage.ts');
-      const storage = await createStorage(ctx.config.storage as any);
-      try {
-        await storage.upload(storagePath, content, mimeType || undefined);
-      } catch (uploadErr) {
-        throw new OperationError('storage_error', `Upload failed: ${uploadErr instanceof Error ? uploadErr.message : String(uploadErr)}`);
-      }
+    if (existing.length > 0 && evidence.disposition === 'already_verified') {
+      return { status: 'already_exists', ...evidence };
     }
 
     try {
@@ -3077,7 +3073,7 @@ const file_upload: Operation = {
       `;
     } catch (dbErr) {
       // Rollback: clean up storage if DB write failed
-      if (ctx.config.storage) {
+      if (ctx.config.storage && existing.length === 0 && evidence.disposition === 'uploaded') {
         try {
           const { createStorage } = await import('./storage.ts');
           const storage = await createStorage(ctx.config.storage as any);
@@ -3087,7 +3083,7 @@ const file_upload: Operation = {
       throw dbErr;
     }
 
-    return { status: 'uploaded', storage_path: storagePath, size_bytes: stat.size };
+    return { status: evidence.disposition === 'repaired' ? 'repaired' : 'uploaded', ...evidence };
   },
 };
 

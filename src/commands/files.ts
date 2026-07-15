@@ -346,30 +346,26 @@ async function uploadFile(engine: BrainEngine, args: string[]) {
   }
 
   const stat = statSync(filePath);
-  const hash = fileHash(filePath);
+  const content = readFileSync(filePath);
+  const hash = createHash('sha256').update(content).digest('hex');
   const filename = basename(filePath);
   const storagePath = pageSlug ? `${pageSlug}/${filename}` : `unsorted/${hash.slice(0, 8)}-${filename}`;
   const mimeType = getMimeType(filePath);
 
   const sql = sqlQueryForEngine(engine);
 
-  // Check for existing file by hash
   const existing = await sql`SELECT id FROM files WHERE content_hash = ${hash} AND storage_path = ${storagePath}`;
-  if (existing.length > 0) {
-    console.log(`File already uploaded (hash match): ${storagePath}`);
-    return;
-  }
-
-  // Upload to storage backend if configured
   const { loadConfig } = await import('../core/config.ts');
+  const { ensureDurableStorageFile } = await import('../core/durable-file-storage.ts');
   const config = loadConfig();
-  if (config?.storage) {
-    const { createStorage } = await import('../core/storage.ts');
-    const storage = await createStorage(config.storage as any);
-    const content = readFileSync(filePath);
-    const method = content.length >= SIZE_THRESHOLD ? 'TUS resumable' : 'standard';
-    console.log(`Uploading ${humanSize(stat.size)} via ${method}...`);
-    await storage.upload(storagePath, content, mimeType || undefined);
+  const evidence = await ensureDurableStorageFile(config?.storage as any, storagePath, content, mimeType, existing.length > 0);
+
+  // Idempotence is only valid after the backing object is verified. If a ledger
+  // row exists but the blob is missing, ensureDurableStorageFile repairs it.
+  if (existing.length > 0 && evidence.disposition === 'already_verified') {
+    console.log(`File already uploaded (hash match): ${storagePath}`);
+    console.log(`GBRAIN_FILE_EVIDENCE ${JSON.stringify(evidence)}`);
+    return;
   }
 
   await sql`
@@ -381,7 +377,8 @@ async function uploadFile(engine: BrainEngine, args: string[]) {
       mime_type = EXCLUDED.mime_type
   `;
 
-  console.log(`Uploaded: ${storagePath} (${humanSize(stat.size)})`);
+  console.log(`${evidence.disposition === 'repaired' ? 'Repaired' : 'Uploaded'}: ${storagePath} (${humanSize(stat.size)})`);
+  console.log(`GBRAIN_FILE_EVIDENCE ${JSON.stringify(evidence)}`);
 }
 
 /**
@@ -578,18 +575,34 @@ async function verifyFiles(engine: BrainEngine) {
     return;
   }
 
+  const { loadConfig } = await import('../core/config.ts');
+  const config = loadConfig();
+  if (!config?.storage) throw new Error('No storage backend configured; durable file verification is unavailable.');
+  const { createStorage } = await import('../core/storage.ts');
+  const storage = await createStorage(config.storage as any);
   let verified = 0;
   let mismatches = 0;
   let missing = 0;
 
   for (const row of rows) {
-    // Note: full verification would check Supabase Storage hash
-    // For now, verify the DB record exists and has valid data
     if (!row.content_hash || !row.storage_path) {
       mismatches++;
       console.error(`  MISMATCH: ${row.storage_path} (missing hash or path)`);
-    } else {
-      verified++;
+      continue;
+    }
+    try {
+      const storagePath = String(row.storage_path);
+      const bytes = await storage.download(storagePath);
+      const actualHash = createHash('sha256').update(bytes).digest('hex');
+      if (actualHash !== row.content_hash || bytes.length !== Number(row.size_bytes)) {
+        mismatches++;
+        console.error(`  MISMATCH: ${row.storage_path} (byte/hash mismatch)`);
+      } else {
+        verified++;
+      }
+    } catch {
+      missing++;
+      console.error(`  MISSING: ${row.storage_path}`);
     }
   }
 
