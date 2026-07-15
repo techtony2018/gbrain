@@ -113,6 +113,37 @@ describe('resolver feedback MCP operations', () => {
     expect(listed.proposals[0].evidence_count).toBe(2);
   });
 
+  test('synthetic resolver events remain auditable but are excluded from production learning', async () => {
+    for (const suffix of ['a', 'b']) {
+      await call('resolver_events_submit', {
+        event_id: `stargraph-probe-${suffix}`,
+        producer: 'stargraph',
+        resolver_version: 'resolver-v1',
+        intent_summary: 'What should I know on people/tony-guan',
+        selected_route: 'ask-yoda',
+        outcome: 'fallback',
+        environment: 'test',
+        synthetic: true,
+        test_run: true,
+        pair_id: `probe-pair-${suffix}`,
+      });
+    }
+
+    const listed = await call('resolver_events_list', { producer: 'stargraph', limit: 10 });
+    expect(listed.events).toHaveLength(2);
+    expect(listed.events.every((event: any) => event.metadata.synthetic === true)).toBe(true);
+    expect(listed.events.every((event: any) => event.metadata.environment === 'test')).toBe(true);
+
+    const generated = await call('resolver_proposals_generate', { min_evidence: 2 });
+    expect(generated.events_scanned).toBe(0);
+    expect(generated.created).toBe(0);
+
+    const health = await call('resolver_feedback_health', {});
+    expect(health.events_24h).toBe(2);
+    expect(health.production_events_24h).toBe(0);
+    expect(health.synthetic_test_events_24h).toBe(2);
+  });
+
   test('approved proposal is versioned, distributed, and rollback records evidence', async () => {
     await call('resolver_events_submit', {
       event_id: 'codex-rollback-1',

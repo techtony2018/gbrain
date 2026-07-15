@@ -191,6 +191,10 @@ export async function submitResolverEvent(engine: BrainEngine, payload: JsonReco
     metadata: {
       operation_path: cleanText(payload.operation_path ?? payload.operation, 160),
       client_timestamp: cleanText(payload.client_timestamp, 80),
+      environment: cleanText(payload.environment, 40).toLowerCase() || 'production',
+      synthetic: payload.synthetic === true,
+      test_run: payload.test_run === true,
+      pair_id: cleanText(payload.pair_id, 160),
     },
   };
   const existing = await engine.executeRaw<JsonRecord>('SELECT * FROM resolver_events WHERE event_id = $1', [event.event_id]);
@@ -239,8 +243,11 @@ export async function generateResolverProposals(engine: BrainEngine, opts: JsonR
   const dryRun = opts.dry_run === true;
   const failedRows = await engine.executeRaw<JsonRecord>(
     `SELECT * FROM resolver_events
-     WHERE outcome IN ('fallback','timeout','no_match','error','manual_correction','manual_override')
-        OR correction_signal <> ''
+     WHERE (outcome IN ('fallback','timeout','no_match','error','manual_correction','manual_override')
+        OR correction_signal <> '')
+       AND COALESCE((metadata->>'synthetic')::boolean, false) = false
+       AND COALESCE((metadata->>'test_run')::boolean, false) = false
+       AND COALESCE(metadata->>'environment', 'production') NOT IN ('test', 'synthetic', 'development')
      ORDER BY created_at DESC
      LIMIT 1000`,
   );
@@ -610,6 +617,16 @@ export async function measureResolverImpact(engine: BrainEngine, payload: JsonRe
 export async function resolverFeedbackHealth(engine: BrainEngine): Promise<JsonRecord> {
   await ensureResolverFeedbackSchema(engine);
   const eventsRows = await engine.executeRaw<{ count: number }>("SELECT count(*)::int AS count FROM resolver_events WHERE created_at > now() - interval '24 hours'");
+  const provenanceRows = await engine.executeRaw<{ production: number; synthetic_test: number }>(`
+    SELECT
+      count(*) FILTER (WHERE COALESCE((metadata->>'synthetic')::boolean, false) = false
+        AND COALESCE((metadata->>'test_run')::boolean, false) = false
+        AND COALESCE(metadata->>'environment', 'production') NOT IN ('test', 'synthetic', 'development'))::int AS production,
+      count(*) FILTER (WHERE COALESCE((metadata->>'synthetic')::boolean, false) = true
+        OR COALESCE((metadata->>'test_run')::boolean, false) = true
+        OR COALESCE(metadata->>'environment', 'production') IN ('test', 'synthetic', 'development'))::int AS synthetic_test
+    FROM resolver_events WHERE created_at > now() - interval '24 hours'
+  `);
   const countsRows = await engine.executeRaw<{ status: string; count: number }>('SELECT status, count(*)::int AS count FROM resolver_proposals GROUP BY status');
   const lastRuns = await engine.executeRaw<JsonRecord>('SELECT * FROM resolver_dream_runs ORDER BY started_at DESC LIMIT 1');
   const activeReleases = await engine.executeRaw<JsonRecord>('SELECT version, checksum, created_at FROM resolver_releases WHERE active = true ORDER BY created_at DESC LIMIT 1');
@@ -621,6 +638,8 @@ export async function resolverFeedbackHealth(engine: BrainEngine): Promise<JsonR
   return {
     ok: true,
     events_24h: Number(eventsRows[0]?.count ?? 0),
+    production_events_24h: Number(provenanceRows[0]?.production ?? 0),
+    synthetic_test_events_24h: Number(provenanceRows[0]?.synthetic_test ?? 0),
     proposal_counts: proposalCounts,
     last_dream_run: lastRuns[0] ? asObject(lastRuns[0]) : null,
     active_release: activeReleases[0] ? asObject(activeReleases[0]) : null,
