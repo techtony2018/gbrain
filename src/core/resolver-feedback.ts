@@ -5,6 +5,8 @@ type JsonRecord = Record<string, unknown>;
 
 const EVENT_OUTCOMES = new Set(['success', 'fallback', 'timeout', 'no_match', 'error', 'manual_correction', 'manual_override']);
 const PROPOSAL_STATUSES = new Set(['pending', 'accepted', 'rejected', 'applied', 'failed']);
+const EVENT_METADATA_SQL = `(CASE WHEN jsonb_typeof(metadata) = 'string'
+  THEN (metadata #>> '{}')::jsonb ELSE metadata END)`;
 const SECRET_PATTERNS = [
   /(?:api[_-]?key|token|secret|password)\s*[:=]\s*[^,\s]+/gi,
   /\bsk-[a-z0-9_-]+/gi,
@@ -245,9 +247,9 @@ export async function generateResolverProposals(engine: BrainEngine, opts: JsonR
     `SELECT * FROM resolver_events
      WHERE (outcome IN ('fallback','timeout','no_match','error','manual_correction','manual_override')
         OR correction_signal <> '')
-       AND COALESCE((metadata->>'synthetic')::boolean, false) = false
-       AND COALESCE((metadata->>'test_run')::boolean, false) = false
-       AND COALESCE(metadata->>'environment', 'production') NOT IN ('test', 'synthetic', 'development')
+       AND COALESCE((${EVENT_METADATA_SQL}->>'synthetic')::boolean, false) = false
+       AND COALESCE((${EVENT_METADATA_SQL}->>'test_run')::boolean, false) = false
+       AND COALESCE(${EVENT_METADATA_SQL}->>'environment', 'production') NOT IN ('test', 'synthetic', 'development')
      ORDER BY created_at DESC
      LIMIT 1000`,
   );
@@ -619,12 +621,12 @@ export async function resolverFeedbackHealth(engine: BrainEngine): Promise<JsonR
   const eventsRows = await engine.executeRaw<{ count: number }>("SELECT count(*)::int AS count FROM resolver_events WHERE created_at > now() - interval '24 hours'");
   const provenanceRows = await engine.executeRaw<{ production: number; synthetic_test: number }>(`
     SELECT
-      count(*) FILTER (WHERE COALESCE((metadata->>'synthetic')::boolean, false) = false
-        AND COALESCE((metadata->>'test_run')::boolean, false) = false
-        AND COALESCE(metadata->>'environment', 'production') NOT IN ('test', 'synthetic', 'development'))::int AS production,
-      count(*) FILTER (WHERE COALESCE((metadata->>'synthetic')::boolean, false) = true
-        OR COALESCE((metadata->>'test_run')::boolean, false) = true
-        OR COALESCE(metadata->>'environment', 'production') IN ('test', 'synthetic', 'development'))::int AS synthetic_test
+      count(*) FILTER (WHERE COALESCE((${EVENT_METADATA_SQL}->>'synthetic')::boolean, false) = false
+        AND COALESCE((${EVENT_METADATA_SQL}->>'test_run')::boolean, false) = false
+        AND COALESCE(${EVENT_METADATA_SQL}->>'environment', 'production') NOT IN ('test', 'synthetic', 'development'))::int AS production,
+      count(*) FILTER (WHERE COALESCE((${EVENT_METADATA_SQL}->>'synthetic')::boolean, false) = true
+        OR COALESCE((${EVENT_METADATA_SQL}->>'test_run')::boolean, false) = true
+        OR COALESCE(${EVENT_METADATA_SQL}->>'environment', 'production') IN ('test', 'synthetic', 'development'))::int AS synthetic_test
     FROM resolver_events WHERE created_at > now() - interval '24 hours'
   `);
   const countsRows = await engine.executeRaw<{ status: string; count: number }>('SELECT status, count(*)::int AS count FROM resolver_proposals GROUP BY status');

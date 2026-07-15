@@ -134,6 +134,9 @@ describe('resolver feedback MCP operations', () => {
     expect(listed.events.every((event: any) => event.metadata.synthetic === true)).toBe(true);
     expect(listed.events.every((event: any) => event.metadata.environment === 'test')).toBe(true);
 
+    // Postgres deployments may surface historical metadata as a JSONB string.
+    await engine.executeRaw("UPDATE resolver_events SET metadata = to_jsonb(metadata::text)");
+
     const generated = await call('resolver_proposals_generate', { min_evidence: 2 });
     expect(generated.events_scanned).toBe(0);
     expect(generated.created).toBe(0);
