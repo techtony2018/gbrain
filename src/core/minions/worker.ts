@@ -83,6 +83,21 @@ import { EventEmitter } from 'events';
 import { evaluateQuietHours, type QuietHoursConfig } from './quiet-hours.ts';
 import { readFileSync } from 'fs';
 
+function envPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  if (!/^\d+$/.test(raw.trim())) {
+    console.warn(`[minion worker] ${name}=${JSON.stringify(raw)} is not a positive integer; using ${fallback}`);
+    return fallback;
+  }
+  const parsed = Number(raw.trim());
+  if (!Number.isFinite(parsed) || parsed <= 0 || !Number.isInteger(parsed)) {
+    console.warn(`[minion worker] ${name}=${JSON.stringify(raw)} is not a positive integer; using ${fallback}`);
+    return fallback;
+  }
+  return parsed;
+}
+
 /**
  * Pure parser for /proc/self/status RSS fields. Returns bytes of
  * RssAnon + RssShmem when either field is present, or null when the
@@ -278,7 +293,7 @@ export class MinionWorker extends EventEmitter {
     this.opts = {
       queue: opts?.queue ?? 'default',
       concurrency: opts?.concurrency ?? 1,
-      lockDuration: opts?.lockDuration ?? 30000,
+      lockDuration: opts?.lockDuration ?? envPositiveInt('GBRAIN_MINION_LOCK_DURATION_MS', 30000),
       stalledInterval: opts?.stalledInterval ?? 30000,
       maxStalledCount: opts?.maxStalledCount ?? 1,
       pollInterval: opts?.pollInterval ?? 5000,

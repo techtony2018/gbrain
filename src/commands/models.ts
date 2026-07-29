@@ -64,6 +64,7 @@ const PER_TASK_KEYS: PerTaskModelRoute[] = [
     overrideKey: 'models.dream.triage',
   },
   { key: 'models.dream.patterns',           tier: 'reasoning', description: 'Pattern discovery (cross-take themes)' },
+  { key: 'models.dream.propose_takes',       tier: 'reasoning', description: 'Take proposal extraction (pages → proposed takes)' },
   { key: 'models.drift',                    tier: 'reasoning', description: 'Drift LLM judge (v0.29 scaffold)' },
   { key: 'models.auto_think',               tier: 'deep',      description: 'Auto-think question answering' },
   { key: 'models.think',                    tier: 'deep',      description: '`gbrain think` synthesis op' },

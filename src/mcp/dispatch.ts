@@ -595,7 +595,11 @@ export async function dispatchToolCall(
         ...(name === 'entity' && typeof r?.found === 'boolean' ? { entity_found: r.found } : {}),
       });
     }
-    const out: ToolResult = { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    // Preserve BigInt values at the MCP serialization boundary without losing
+    // precision; this matches the CLI/postgres.js wire contract.
+    const replacer = (_key: string, value: unknown) =>
+      typeof value === 'bigint' ? value.toString() : value;
+    const out: ToolResult = { content: [{ type: 'text', text: JSON.stringify(result, replacer, 2) }] };
     // D8: model-visible loudness for empty retrievals. The body stays a bare
     // array (D3 — deployed thin-clients parse content[0] only), and a SECOND
     // text block carries the diagnosis the model actually sees. Structured

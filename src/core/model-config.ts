@@ -547,7 +547,12 @@ export async function resolveAlias(
 ): Promise<string> {
   if (depth > 2) return name; // cycle break
   if (engine) {
-    const userAlias = await engine.getConfig(`models.aliases.${name}`);
+    let userAlias: string | null = null;
+    try {
+      userAlias = await engine.getConfig?.(`models.aliases.${name}`) ?? null;
+    } catch {
+      userAlias = null;
+    }
     if (userAlias && userAlias.trim() && userAlias.trim() !== name) {
       return await resolveAlias(engine, userAlias.trim(), depth + 1);
     }

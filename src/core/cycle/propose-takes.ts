@@ -45,6 +45,7 @@ import { createGlobalLlmHaltTracker, haltedClassOf, type GlobalLlmErrorClass } f
 import { normalizeModelId } from '../model-id.ts';
 import { writeReceipt } from '../extract/receipt-writer.ts';
 import { upsertExtractRollup } from '../extract/rollup-writer.ts';
+import { resolveAlias } from '../model-config.ts';
 import { GBrainError } from '../types.ts';
 import { isConfigTruthy } from '../config.ts';
 import type { OperationContext } from '../operations.ts';
@@ -473,6 +474,21 @@ export function parseExtractorOutput(raw: string): ProposedTake[] {
   return out;
 }
 
+export async function resolveProposeTakesModel(engine: BrainEngine, explicitModel?: string): Promise<string> {
+  let configured: string | null = null;
+  try {
+    configured = await engine.getConfig?.('models.dream.propose_takes') ?? null;
+  } catch {
+    configured = null;
+  }
+  const selected =
+    explicitModel?.trim()
+    || configured?.trim()
+    || process.env.GBRAIN_PROPOSE_TAKES_MODEL?.trim()
+    || getChatModel();
+  return await resolveAlias(engine, selected);
+}
+
 /**
  * BaseCyclePhase subclass. Walks pages, checks idempotency cache, calls
  * extractor, writes proposals.
@@ -601,9 +617,8 @@ class ProposeTakesPhase extends BaseCyclePhase {
     const resolvedDeadlineMs =
       opts.deadlineMs ?? resolveProposeTakesDeadlineMs(opts.deadlineAtMs, Date.now());
     const phaseStartMs = Date.now();
+    const modelId = await resolveProposeTakesModel(engine, opts.model);
     const proposalRunId = `propose-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}-${randomUUID().slice(0, 8)}`;
-
-    const modelId = opts.model ?? getChatModel();
 
     // With the default (gateway) extractor, skip cheaply when the resolved
     // model's provider can't run — same probe semantics as patterns.ts /
@@ -767,7 +782,7 @@ class ProposeTakesPhase extends BaseCyclePhase {
           pagePath: page.slug,
           pageBody: body,
           existingTakes,
-          modelHint: opts.model,
+          modelHint: modelId,
         });
       } catch (err) {
         result.llm_calls_failed += 1;
@@ -932,7 +947,7 @@ class ProposeTakesPhase extends BaseCyclePhase {
           ? `; aborted after ${result.llm_calls_failed} consecutive extractor failures (zero successes)`
           : '') +
         (warningCount > 0 ? ` (${warningCount} warning(s))` : ''),
-      details: { ...result, halted, proposal_run_id: proposalRunId, prompt_version: promptVersion },
+      details: { ...result, halted, proposal_run_id: proposalRunId, prompt_version: promptVersion, model_id: modelId },
       status: phaseFailed ? 'fail' : halted || warningCount > 0 ? 'warn' : 'ok',
     };
   }
@@ -953,6 +968,7 @@ export async function runPhaseProposeTakes(
 export const __testing = {
   ProposeTakesPhase,
   parseExtractorOutput,
+  resolveProposeTakesModel,
   contentHash,
   hasCompleteFence,
   extractExistingTakesForDedup,

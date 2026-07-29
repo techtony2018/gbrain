@@ -101,5 +101,24 @@ describe('file_upload engine ownership', () => {
     // LocalStorage canonicalizes its base (macOS /var → /private/var).
     expect(parsed.url).toBe(`file://${join(realpathSync(storageDir), 'concepts/example-board/capture.json')}`);
     });
+
+    const deleted = await dispatchToolCall(engine, 'files_delete', {
+      storage_path: 'concepts/example-board/capture.json',
+      yes: true,
+      keep_storage: true,
+    }, { remote: true, sourceId: 'default' });
+    expect(deleted.isError).toBeFalsy();
+    expect(JSON.parse(deleted.content[0].text)).toEqual(expect.objectContaining({
+      status: 'deleted',
+      matched: 1,
+      db_deleted: 1,
+      storage_deleted: 0,
+    }));
+
+    const afterDelete = await dispatchToolCall(engine, 'file_list', {
+      slug: 'concepts/example-board',
+    }, { remote: true, transport: 'stdio', sourceId: 'default' });
+    expect(afterDelete.isError).toBeFalsy();
+    expect(JSON.parse(afterDelete.content[0].text)).toEqual([]);
   });
 });
