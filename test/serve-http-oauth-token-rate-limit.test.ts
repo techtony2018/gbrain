@@ -1,18 +1,18 @@
 /**
  * Tests for resolveOAuthTokenRateLimit() in src/commands/serve-http.ts.
  *
- * The /token client_credentials limiter should keep the historical default
- * while letting operators tune busy remote MCP hosts without patching source.
+ * The /token client_credentials limiter defaults to the busy-host profile
+ * while still letting operators tune it without patching source.
  */
 
 import { describe, test, expect } from 'bun:test';
 import { resolveOAuthTokenRateLimit } from '../src/commands/serve-http.ts';
 
 describe('resolveOAuthTokenRateLimit', () => {
-  test('unset env keeps the historical 50 requests per 15 minutes default', () => {
+  test('unset env uses the busy-host 200 requests per minute default', () => {
     expect(resolveOAuthTokenRateLimit({})).toEqual({
-      windowMs: 15 * 60 * 1000,
-      max: 50,
+      windowMs: 60_000,
+      max: 200,
     });
   });
 
@@ -31,16 +31,16 @@ describe('resolveOAuthTokenRateLimit', () => {
       GBRAIN_OAUTH_TOKEN_RATE_LIMIT_WINDOW_MS: '',
       GBRAIN_OAUTH_TOKEN_RATE_LIMIT_MAX: 'nope',
     })).toEqual({
-      windowMs: 15 * 60 * 1000,
-      max: 50,
+      windowMs: 60_000,
+      max: 200,
     });
 
     expect(resolveOAuthTokenRateLimit({
       GBRAIN_OAUTH_TOKEN_RATE_LIMIT_WINDOW_MS: '0',
       GBRAIN_OAUTH_TOKEN_RATE_LIMIT_MAX: '-10',
     })).toEqual({
-      windowMs: 15 * 60 * 1000,
-      max: 50,
+      windowMs: 60_000,
+      max: 200,
     });
   });
 });

@@ -44,9 +44,11 @@ interface CapturedSql {
 function buildMockEngine(opts: {
   pages: Page[];
   existingProposals?: Set<string>; // composite-key strings already in take_proposals
+  config?: Record<string, string | null>;
 }): { engine: BrainEngine; captured: CapturedSql[] } {
   const captured: CapturedSql[] = [];
   const existing = opts.existingProposals ?? new Set<string>();
+  const config = opts.config ?? {};
 
   const engine = {
     kind: 'pglite',
@@ -82,6 +84,9 @@ function buildMockEngine(opts: {
       }
       // Other writes — return nothing.
       return [];
+    },
+    async getConfig(key: string) {
+      return config[key] ?? null;
     },
   } as unknown as BrainEngine;
 
@@ -368,6 +373,26 @@ describe('runPhaseProposeTakes — phase integration', () => {
     expect(inserts).toHaveLength(2);
     for (const insert of inserts) expect(insert.sql).toContain('md5(claim_text)');
     expect(inserts.map(i => i.params[5])).toEqual(['Claim one', 'Claim two']);
+  });
+
+  test('uses models.dream.propose_takes for extractor, details, and stored model_id', async () => {
+    const pages = [buildPage({ slug: 'wiki/openai-model', body: 'This page has a gradeable claim.' })];
+    const { engine, captured } = buildMockEngine({
+      pages,
+      config: { 'models.dream.propose_takes': 'openai:gpt-5.2' },
+    });
+    let receivedModelHint: string | undefined;
+    const extractor: ProposeTakesExtractor = async ({ modelHint }) => {
+      receivedModelHint = modelHint;
+      return [{ claim_text: 'The page has a gradeable claim', kind: 'take', holder: 'brain', weight: 0.6 }];
+    };
+
+    const result = await runPhaseProposeTakes(buildCtx(engine), { extractor });
+
+    expect(receivedModelHint).toBe('openai:gpt-5.2');
+    expect((result.details as Record<string, unknown>).model_id).toBe('openai:gpt-5.2');
+    const insert = captured.find(c => c.sql.includes('INSERT INTO take_proposals'));
+    expect(insert?.params[11]).toBe('openai:gpt-5.2');
   });
 
   test('cache hit: page already in take_proposals is skipped', async () => {

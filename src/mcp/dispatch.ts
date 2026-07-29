@@ -383,7 +383,13 @@ export async function dispatchToolCall(
         ...(name === 'entity' && typeof r?.found === 'boolean' ? { entity_found: r.found } : {}),
       });
     }
-    const out: ToolResult = { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    // Preserve BigInt values at the MCP serialization boundary without losing
+    // precision; this matches the CLI/postgres.js wire contract.
+    const replacer = (_key: string, value: unknown) =>
+      typeof value === 'bigint' ? value.toString() : value;
+    const out: ToolResult = {
+      content: [{ type: 'text', text: JSON.stringify(result, replacer, 2) }],
+    };
     // v0.31 (eD3 + eE4): best-effort _meta.brain_hot_memory injection.
     // The hook is wrapped in its own try/catch — any DB blip / cache miss /
     // helper crash degrades to no `_meta` rather than flipping the whole
