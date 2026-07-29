@@ -949,17 +949,19 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
         }
         const recommendations = computeRecommendations(health, ctx, extraRemediations);
         const plan = recommendations.filter((r) => r.status === 'remediable');
-        const estTotal = plan.reduce((s, r) => s + r.est_seconds, 0);
 
         // Track time since last full cycle for the 60-min floor.
         const FULL_CYCLE_FLOOR_MIN = 60;
         const minutesSinceLastFull = (Date.now() - lastFullCycleAt) / 60000;
 
+        // Explicit remediations always go through the durable finding ledger,
+        // regardless of count or estimated duration. Full cycles are the
+        // fallback only when detectors have no targeted repair to dispatch.
         const shouldFullCycle =
-          (score >= 95 && plan.length === 0 && minutesSinceLastFull >= FULL_CYCLE_FLOOR_MIN) ||
-          plan.length > 3 ||
-          estTotal >= 300 ||
-          score < 70;
+          plan.length === 0 && (
+            (score >= 95 && minutesSinceLastFull >= FULL_CYCLE_FLOOR_MIN) ||
+            score < 70
+          );
 
         const shouldSleep = score >= 95 && plan.length === 0 && minutesSinceLastFull < FULL_CYCLE_FLOOR_MIN;
 
