@@ -182,15 +182,19 @@ export function resolveWindowsCliPath(): string {
  * resolves to) that already wraps the right runtime+entrypoint; prefer it.
  *
  * Order of resolution:
- *   1. Platform PATH lookup - `which gbrain` on POSIX; explicit %PATH%
+ *   1. `GBRAIN_CLI_PATH` when explicitly configured by the operator.
+ *   2. Platform PATH lookup - `which gbrain` on POSIX; explicit %PATH%
  *      enumeration (resolveWindowsCliPath) on win32, where `which` does
  *      not exist (#3793).
- *   2. process.execPath if it ends with /gbrain (compiled binary, no shim).
- *   3. argv[1] if it ends with /gbrain (e.g., direct invocation of compiled
+ *   3. process.execPath if it ends with /gbrain (compiled binary, no shim).
+ *   4. argv[1] if it ends with /gbrain (e.g., direct invocation of compiled
  *      binary without PATH). Never .ts source paths.
- *   4. Throw with a clear install hint.
+ *   5. Throw with a clear install hint.
  */
 export function resolveGbrainCliPath(): string {
+  const explicit = process.env.GBRAIN_CLI_PATH?.trim();
+  if (explicit) return explicit;
+
   // #3793: `which` does not exist in cmd or PowerShell on Windows, so the
   // bun-installed gbrain.exe shim on %PATH% was never found and autopilot
   // died with "Could not resolve the gbrain CLI path". `where` would find
