@@ -110,6 +110,9 @@ function logError(phase: string, e: unknown) {
  *   4. Throw with a clear install hint.
  */
 export function resolveGbrainCliPath(): string {
+  const explicit = process.env.GBRAIN_CLI_PATH?.trim();
+  if (explicit) return explicit;
+
   try {
     // #2747: `env: process.env` is required under Bun. Bun's execSync
     // snapshots process.env at Bun's OWN startup, not at call time — a

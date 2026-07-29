@@ -281,7 +281,9 @@ export async function dispatchToolCall(
 
   try {
     const result = await op.handler(ctx, safeParams);
-    const out: ToolResult = { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    // Fix: JSON.stringify cannot serialize BigInt — convert to Number
+    const replacer = (_k: string, v: unknown) => typeof v === 'bigint' ? Number(v) : v;
+    const out: ToolResult = { content: [{ type: 'text', text: JSON.stringify(result, replacer, 2) }] };
     // v0.31 (eD3 + eE4): best-effort _meta.brain_hot_memory injection.
     // The hook is wrapped in its own try/catch — any DB blip / cache miss /
     // helper crash degrades to no `_meta` rather than flipping the whole
