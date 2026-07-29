@@ -5724,6 +5724,49 @@ export const MIGRATIONS: Migration[] = [
         ON take_proposals (source_id, page_slug, content_hash, prompt_version, md5(claim_text));
     `,
   },
+  {
+    version: 126,
+    name: 'autopilot_findings_followup_ledger',
+    // Durable operational follow-ups for autopilot. This is intentionally
+    // separate from take_proposals: takes are knowledge claims, while these
+    // rows track detected operational conditions through repair, verification,
+    // acknowledgement, escalation, and resolution.
+    idempotent: true,
+    sql: `
+      CREATE TABLE IF NOT EXISTS autopilot_findings (
+        id BIGSERIAL PRIMARY KEY,
+        fingerprint TEXT NOT NULL UNIQUE,
+        check_name TEXT NOT NULL,
+        source_id TEXT NOT NULL DEFAULT 'default',
+        authority TEXT NOT NULL CHECK (authority IN ('remediable', 'blocked', 'human_only')),
+        state TEXT NOT NULL CHECK (
+          state IN ('open', 'queued', 'repairing', 'blocked', 'awaiting_approval', 'escalated', 'resolved')
+        ),
+        severity TEXT NOT NULL CHECK (severity IN ('critical', 'high', 'medium', 'low')),
+        rationale TEXT NOT NULL,
+        evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+        recommended_action TEXT,
+        owner TEXT,
+        job_id BIGINT REFERENCES minion_jobs(id) ON DELETE SET NULL,
+        repair_attempts INTEGER NOT NULL DEFAULT 0,
+        postcondition_failures INTEGER NOT NULL DEFAULT 0,
+        acknowledged_at TIMESTAMPTZ,
+        acknowledged_by TEXT,
+        first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        resolved_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE INDEX IF NOT EXISTS autopilot_findings_state_updated_idx
+        ON autopilot_findings (state, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS autopilot_findings_source_check_idx
+        ON autopilot_findings (source_id, check_name);
+      CREATE INDEX IF NOT EXISTS autopilot_findings_job_idx
+        ON autopilot_findings (job_id)
+        WHERE job_id IS NOT NULL;
+    `,
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS.length > 0

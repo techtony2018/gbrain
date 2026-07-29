@@ -3297,6 +3297,59 @@ const get_job: Operation = {
   },
 };
 
+const autopilot_findings_list: Operation = {
+  name: 'autopilot_findings_list',
+  description: 'List durable autopilot follow-ups, including blocked, approval-required, escalated, repairing, and resolved findings',
+  params: {
+    state: {
+      type: 'string',
+      description: 'Optional lifecycle state filter',
+      enum: ['open', 'queued', 'repairing', 'blocked', 'awaiting_approval', 'escalated', 'resolved'],
+    },
+    limit: { type: 'number', description: 'Max results (default 50, max 200)' },
+    offset: { type: 'number', description: 'Pagination offset (default 0)' },
+  },
+  scope: 'admin',
+  handler: async (ctx, p) => {
+    const { listAutopilotFindings } = await import('./autopilot-findings.ts');
+    return listAutopilotFindings(ctx.engine, {
+      state: p.state as
+        | 'open'
+        | 'queued'
+        | 'repairing'
+        | 'blocked'
+        | 'awaiting_approval'
+        | 'escalated'
+        | 'resolved'
+        | undefined,
+      limit: p.limit as number | undefined,
+      offset: p.offset as number | undefined,
+    });
+  },
+};
+
+const autopilot_findings_acknowledge: Operation = {
+  name: 'autopilot_findings_acknowledge',
+  description: 'Acknowledge an autopilot follow-up without falsely resolving its underlying condition',
+  params: {
+    id: { type: 'number', required: true, description: 'Finding ID' },
+  },
+  mutating: true,
+  scope: 'admin',
+  handler: async (ctx, p) => {
+    const id = Number(p.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new OperationError('invalid_params', 'Finding id must be a positive integer');
+    }
+    if (ctx.dryRun) return { dry_run: true, action: 'autopilot_findings_acknowledge', id };
+    const { acknowledgeAutopilotFinding } = await import('./autopilot-findings.ts');
+    const actor = ctx.auth?.clientName ?? ctx.auth?.clientId ?? (ctx.remote ? 'remote-admin' : 'local-operator');
+    const finding = await acknowledgeAutopilotFinding(ctx.engine, id, actor);
+    if (!finding) throw new OperationError('invalid_params', `Autopilot finding not found: ${id}`);
+    return finding;
+  },
+};
+
 const list_jobs: Operation = {
   name: 'list_jobs',
   description: 'List jobs with optional filters',
@@ -5925,6 +5978,8 @@ export const operations: Operation[] = [
   // Jobs (Minions)
   submit_job, get_job, list_jobs, cancel_job, retry_job, get_job_progress,
   pause_job, resume_job, replay_job, send_job_message,
+  // Durable autopilot operational follow-ups (separate from knowledge takes)
+  autopilot_findings_list, autopilot_findings_acknowledge,
   // v0.38 Slice 3: remote-callable agent dispatch with OAuth-bound trust boundary
   submit_agent,
   // Orphans

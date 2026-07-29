@@ -725,7 +725,7 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
       // poll-only deployments.
       try {
         const { MinionQueue } = await import('../core/minions/queue.ts');
-        const { computeRecommendations, embeddingProviderConfigured, HOSTED_EMBED_KEY_CONFIG } = await import('../core/brain-score-recommendations.ts');
+        const { computeRecommendations, classifyChecks, embeddingProviderConfigured, HOSTED_EMBED_KEY_CONFIG } = await import('../core/brain-score-recommendations.ts');
         const queue = new MinionQueue(engine);
         const slotMs = Math.floor(Date.now() / (baseInterval * 1000)) * baseInterval * 1000;
         const slot = new Date(slotMs).toISOString();
@@ -947,7 +947,8 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
             `[autopilot] onboard checks failed (fail-open per A19): ${err instanceof Error ? err.message : String(err)}\n`,
           );
         }
-        const plan = computeRecommendations(health, ctx, extraRemediations).filter((r) => r.status === 'remediable');
+        const recommendations = computeRecommendations(health, ctx, extraRemediations);
+        const plan = recommendations.filter((r) => r.status === 'remediable');
         const estTotal = plan.reduce((s, r) => s + r.est_seconds, 0);
 
         // Track time since last full cycle for the 60-min floor.
@@ -961,6 +962,59 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
           score < 70;
 
         const shouldSleep = score >= 95 && plan.length === 0 && minutesSinceLastFull < FULL_CYCLE_FLOOR_MIN;
+
+        // Durable follow-up loop. The recommendation list is the fresh
+        // postcondition detector: a completed Minion job does not close its
+        // finding unless this pass no longer emits the condition. Blocked and
+        // human-only findings are persisted for an operator instead of being
+        // silently discarded by the remediable-only plan filter.
+        try {
+          const {
+            AUTOPILOT_FINDING_CHECKS_IN_SCOPE,
+            buildAutopilotFindingObservations,
+            reconcileAutopilotFindings,
+          } = await import('../core/autopilot-findings.ts');
+          const activeClassifications = classifyChecks([
+            { name: 'brain_score', status: 'ok' as const },
+            { name: 'sync_freshness', status: 'ok' as const },
+            { name: 'missing_embeddings', status: 'ok' as const },
+            { name: 'dead_links', status: 'ok' as const },
+          ], ctx).filter((classification) => {
+            if (classification.status !== 'blocked') return false;
+            if (classification.check === 'brain_score') return score < 90;
+            if (classification.check === 'sync_freshness') return score < 90;
+            if (classification.check === 'missing_embeddings') return health.missing_embeddings > 0;
+            if (classification.check === 'dead_links') return health.dead_links > 0;
+            return false;
+          });
+          const observations = buildAutopilotFindingObservations({
+            recommendations,
+            blocked: activeClassifications.map((classification) => ({
+              check: classification.check,
+              reason: classification.reason ?? 'prerequisite missing',
+            })),
+            orphanPages: health.orphan_pages,
+          });
+          const followups = await reconcileAutopilotFindings(
+            engine,
+            observations,
+            [...AUTOPILOT_FINDING_CHECKS_IN_SCOPE],
+            queue,
+            { dispatchRemediable: !shouldFullCycle, timeoutMs },
+          );
+          if (jsonMode) {
+            process.stderr.write(JSON.stringify({ event: 'followups', ...followups }) + '\n');
+          } else if (followups.observed > 0 || followups.resolved > 0) {
+            console.log(
+              `[followups] observed=${followups.observed} dispatched=${followups.dispatched} ` +
+              `escalated=${followups.escalated} resolved=${followups.resolved}`,
+            );
+          }
+        } catch (e) {
+          // Follow-up persistence is important but must not stop the existing
+          // maintenance loop while an operator repairs its storage path.
+          logError('dispatch.followups', e);
+        }
 
         if (shouldSleep) {
           if (jsonMode) {
@@ -1025,35 +1079,9 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
             );
           }
         } else {
-          // Small targeted plan — submit individual handlers per step.
-          // D9 content-hash idempotency keys (from computeRecommendations).
-          // maxWaiting:1 per submit per codex #17 (closes the backpressure
-          // gap the prior implementation had for targeted submits).
-          for (const step of plan) {
-            try {
-              const isProtected = !!step.protected;
-              const submitOpts = {
-                queue: 'default',
-                idempotency_key: step.idempotency_key,
-                max_attempts: 2,
-                timeout_ms: timeoutMs,
-                maxWaiting: 1,
-              };
-              const job = await queue.add(
-                step.job,
-                step.params,
-                submitOpts,
-                isProtected ? { allowProtectedSubmit: true } : undefined,
-              );
-              if (jsonMode) {
-                process.stderr.write(JSON.stringify({ event: 'dispatched', job_id: job.id, mode: 'targeted', step: step.id, score, plan_size: plan.length }) + '\n');
-              } else {
-                console.log(`[dispatch] job #${job.id} ${step.job} (targeted: ${step.id}; score=${score})`);
-              }
-            } catch (e) {
-              logError('dispatch.step', e);
-            }
-          }
+          // Small targeted plans are dispatched by reconcileAutopilotFindings
+          // above so each job is tied to a durable finding and gets a fresh
+          // postcondition check before it can be called resolved.
         }
       } catch (e) { logError('dispatch', e); cycleOk = false; }
     } else {
